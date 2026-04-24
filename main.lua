@@ -17,7 +17,7 @@ local ALLOWED_GAMES = {
 }
 
 -- Ganti URL ini sesuai tempat kamu host script
-local SCRIPT_BASE_URL = "https://raw.githubusercontent.com/hendrawansuinto571-glitch/script/refs/heads/main/"
+local SCRIPT_BASE_URL = "https://raw.githubusercontent.com/hendrawansuinto571-glitch/script/main/"
 
 -- ═══════════════════════════════════════
 --  LOADING SCREEN CUSTOM (0–100%)
