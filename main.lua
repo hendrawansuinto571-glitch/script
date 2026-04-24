@@ -13,11 +13,11 @@ local HttpService     = game:GetService("HttpService")
 --  KONFIGURASI GAME YANG DIIZINKAN
 -- ═══════════════════════════════════════
 local ALLOWED_GAMES = {
-    [3218570640] = "blush",   -- Blush Canyon → load blush.lua
+    [122954079363953] = "blush",   -- Blush Canyon → load blush.lua
 }
 
 -- Ganti URL ini sesuai tempat kamu host script
-local SCRIPT_BASE_URL = "https://github.com/hendrawansuinto571-glitch/script/blob/main/"
+local SCRIPT_BASE_URL = "https://raw.githubusercontent.com/username/wowo-hub/main/"
 
 -- ═══════════════════════════════════════
 --  LOADING SCREEN CUSTOM (0–100%)
