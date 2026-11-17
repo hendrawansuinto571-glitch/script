@@ -4,8 +4,25 @@
 -- ║        Author: Azeey | Beta                                  ║
 -- ╚══════════════════════════════════════════════════════════════╝
 
--- Load Rayfield UI Library
-local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+-- Load Rayfield UI Library dengan Fallback (mencegah error redirect pada executor)
+local Rayfield = nil
+local okLoad, resLoad = pcall(function()
+    return loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+end)
+
+if okLoad and resLoad then
+    Rayfield = resLoad
+else
+    local okRaw, resRaw = pcall(function()
+        return loadstring(game:HttpGet('https://raw.githubusercontent.com/SiriusSoftwareLtd/Rayfield/main/source.lua'))()
+    end)
+    if okRaw and resRaw then
+        Rayfield = resRaw
+    else
+        warn("Gagal memuat Rayfield UI Library. Periksa koneksi internet atau executor kamu.")
+        return
+    end
+end
 
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -117,21 +134,27 @@ local Window = Rayfield:CreateWindow({
     KeySystem = false,
 })
 
+-- Variabel Auto Farm Global
+local autoGrabRiver    = false
+local autoInstantHatch = false
+local autoHatchPanel   = false
+local autoStoreEgg     = false
+local autoFeedPets     = false
+local autoRestockFood  = false
+local autoRebirth      = false
+local autoOffline      = false
+local autoSwingBat     = false
+local autoDailyReward  = false
+local autoFreeGift     = false
+local autoSellEggs     = false
+local grabDelay        = 0.2
+
 -- ╔══════════════════════════════╗
 -- ║  TAB 1 – INFORMASI           ║
 -- ╚══════════════════════════════╝
 local InfoTab = Window:CreateTab("  Info", 4483362458)
 
 InfoTab:CreateSection("👤  Profil Player")
-
-local thumbUrl = ""
-pcall(function()
-    thumbUrl = Players:GetUserThumbnailAsync(
-        LocalPlayer.UserId,
-        Enum.ThumbnailType.HeadShot,
-        Enum.ThumbnailSize.Size420x420
-    )
-end)
 
 InfoTab:CreateButton({
     Name = "🖼️  Lihat Profil Roblox",
@@ -142,7 +165,7 @@ InfoTab:CreateButton({
                     .. "\nUser ID  : " .. tostring(LocalPlayer.UserId)
                     .. "\nUmur Akun: " .. tostring(LocalPlayer.AccountAge) .. " hari",
             Duration = 6,
-            Image    = thumbUrl ~= "" and thumbUrl or 4483362458,
+            Image    = 4483362458,
         })
     end,
 })
@@ -160,6 +183,7 @@ InfoTab:CreateLabel("Pembuat     :  Azeey")
 InfoTab:CreateLabel("UI Library  :  Rayfield")
 
 InfoTab:CreateSection("✅  Fitur Tersedia")
+InfoTab:CreateLabel("🔥  MASTER AUTO FARM — 1 Toggle untuk Menjalankan Semua!")
 InfoTab:CreateLabel("🌊  Auto Grab — Telur Sungai & Dropped Eggs")
 InfoTab:CreateLabel("🐣  Auto Hatch — Instant Hatch, Panel Hatch & Auto Store")
 InfoTab:CreateLabel("🐾  Auto Feed & Pets — Equip Best, Auto Feed Plot Pets")
@@ -179,11 +203,33 @@ InfoTab:CreateLabel("Risiko banned ditanggung pengguna.")
 -- ╚══════════════════════════════╝
 local EggTab = Window:CreateTab("  Egg & Hatch", 4483362458)
 
+-- Master Auto Farm Telur (All-in-One)
+EggTab:CreateSection("🔥  Master Auto Farm Telur")
+
+EggTab:CreateToggle({
+    Name = "🔥  MASTER AUTO FARM TELUR (All-in-One)",
+    CurrentValue = false,
+    Flag = "Toggle_MasterAutoFarm",
+    Callback = function(val)
+        autoGrabRiver    = val
+        autoInstantHatch = val
+        autoHatchPanel   = val
+        autoStoreEgg     = val
+        autoFeedPets     = val
+        autoSellEggs     = val
+        autoRebirth      = val
+        autoOffline      = val
+
+        Rayfield:Notify({
+            Title   = val and "🔥  Master Farm Aktif!" or "🛑  Master Farm Nonaktif",
+            Content = val and "Grab Telur Sungai + Instant Hatch + Auto Store + Auto Feed + Auto Sell AKTIF!" or "Semua auto farm telah dinonaktifkan.",
+            Duration = 3, Image = 4483362458,
+        })
+    end,
+})
+
 -- Auto Grab River
 EggTab:CreateSection("🌊  Auto Grab Telur Sungai")
-
-local autoGrabRiver = false
-local grabDelay = 0.2
 
 EggTab:CreateToggle({
     Name = "⚡  Auto Grab Telur di Sungai",
@@ -304,10 +350,6 @@ EggTab:CreateButton({
 
 -- Hatching & Storage
 EggTab:CreateSection("🐣  Auto Hatching & Storage")
-
-local autoInstantHatch = false
-local autoHatchPanel   = false
-local autoStoreEgg     = false
 
 EggTab:CreateToggle({
     Name = "⚡  Auto Instant Hatch (Lewati Timer)",
@@ -583,9 +625,6 @@ PetTab:CreateButton({
 
 PetTab:CreateSection("🍖  Auto Feeding (Beri Makan Pet)")
 
-local autoFeedPets = false
-local autoRestockFood = false
-
 PetTab:CreateToggle({
     Name = "🍖  Auto Feed Semua Pet di Plot",
     CurrentValue = false,
@@ -711,9 +750,6 @@ local FarmTab = Window:CreateTab("  Auto Farm", 4483362458)
 
 FarmTab:CreateSection("🔄  Auto Rebirth & Income")
 
-local autoRebirth = false
-local autoOffline = false
-
 FarmTab:CreateToggle({
     Name = "🔄  Auto Rebirth",
     CurrentValue = false,
@@ -792,8 +828,6 @@ FarmTab:CreateButton({
 
 FarmTab:CreateSection("🏏  Auto Bat Swing")
 
-local autoSwingBat = false
-
 FarmTab:CreateToggle({
     Name = "🏏  Auto Swing Bat (Pukul Tongkat Cepat)",
     CurrentValue = false,
@@ -832,9 +866,6 @@ FarmTab:CreateButton({
 })
 
 FarmTab:CreateSection("🎁  Auto Claim Hadiah & Event")
-
-local autoDailyReward = false
-local autoFreeGift    = false
 
 FarmTab:CreateToggle({
     Name = "🎁  Auto Claim Daily Reward",
@@ -937,8 +968,6 @@ FarmTab:CreateButton({
 })
 
 FarmTab:CreateSection("🏪  Auto Sell Telur")
-
-local autoSellEggs = false
 
 FarmTab:CreateToggle({
     Name = "💸  Auto Sell All Eggs (Jual Otomatis)",
@@ -1709,5 +1738,5 @@ Rayfield:Notify({
     Title   = "🥚  Wowo Hub — Egg Farm",
     Content = "Selamat datang, " .. LocalPlayer.DisplayName .. "!\nScript siap digunakan. Selamat bermain!",
     Duration = 5,
-    Image    = thumbUrl ~= "" and thumbUrl or 4483362458,
+    Image    = 4483362458,
 })
