@@ -278,18 +278,18 @@ local function ensureEggGrabberEquipped()
         local tool = bp:FindFirstChild("Egg Grabber")
         if tool then
             pcall(function() hum:EquipTool(tool) end)
-            task.wait(0.3)
-            return char:FindFirstChild("Egg Grabber") ~= nil
+            -- task.wait di luar pcall aman
         end
     end
-    return false
+    task.wait(0.3)
+    local charNow = LocalPlayer.Character
+    return charNow and charNow:FindFirstChild("Egg Grabber") ~= nil
 end
 
 -- Ambil 1 telur dari sungai lalu langsung TP ke plot / safe zone
 local function farmSingleEgg()
     -- 1. Cek apakah sudah membawa telur
     if LocalPlayer:GetAttribute("CarriedEggId") then return end
-    if LocalPlayer:GetAttribute("InSaveZone") or LocalPlayer:GetAttribute("InSafeZone") then return end
 
     local runtime    = workspace:FindFirstChild("GameplayRuntime")
     local activeEggs = runtime and runtime:FindFirstChild("ActiveEggs")
@@ -328,7 +328,7 @@ local function farmSingleEgg()
     pcall(function()
         grabRemote:FireServer(nearest, shotTag, { TargetOffset = Vector3.new(0, 0, 0) })
     end)
-    task.wait(0.35)
+    task.wait(0.4)
 
     -- 6. Jika berhasil grab (ada CarriedEggId), langsung TP ke plot / safe zone
     if LocalPlayer:GetAttribute("CarriedEggId") then
@@ -337,25 +337,26 @@ local function farmSingleEgg()
             local pp = plot.PrimaryPart or plot:FindFirstChildWhichIsA("BasePart", true)
             if pp then root.CFrame = pp.CFrame + Vector3.new(0, 4, 0) end
         else
-            -- Fallback: cari SafeZone di workspace
             local safeZone = workspace:FindFirstChild("SafeZone") or workspace:FindFirstChild("SaveZone")
             if safeZone then
-                local sp = safeZone:IsA("Model") and (safeZone.PrimaryPart or safeZone:FindFirstChildWhichIsA("BasePart", true))
-                           or (safeZone:IsA("BasePart") and safeZone)
+                local sp = nil
+                if safeZone:IsA("Model") then
+                    sp = safeZone.PrimaryPart or safeZone:FindFirstChildWhichIsA("BasePart", true)
+                elseif safeZone:IsA("BasePart") then
+                    sp = safeZone
+                end
                 if sp then root.CFrame = sp.CFrame + Vector3.new(0, 4, 0) end
             end
         end
         task.wait(0.4)
 
         -- 7. Store telur ke inventory
-        pcall(function()
-            local req = getUassetRequest()
-            if req then
-                req:FireServer("StoreEgg", "Back")
-                task.wait(0.15)
-                req:FireServer("StoreEgg", nil)
-            end
-        end)
+        local req = getUassetRequest()
+        if req then
+            pcall(function() req:FireServer("StoreEgg", "Back") end)
+            task.wait(0.15)
+            pcall(function() req:FireServer("StoreEgg", nil) end)
+        end
         task.wait(0.3)
     end
 end
@@ -1103,40 +1104,29 @@ local shopIsOpen = false
 ShopTab:CreateButton({
     Name = "🛒  Buka / Tutup Egg Grabber Shop",
     Callback = function()
+        shopIsOpen = not shopIsOpen
         pcall(function()
             local pGui   = LocalPlayer:FindFirstChild("PlayerGui")
             local shopUi = pGui and pGui:FindFirstChild("EggGrabberShopUI")
             if not shopUi then return end
 
-            shopIsOpen = not shopIsOpen
-
-            -- Panggil SetOpen agar animation/state di-handle game
-            local styleOk, styleModule = pcall(function()
-                return require(ReplicatedStorage:FindFirstChild("UassetEggGrabberShopStyle"))
-            end)
-            if styleOk and styleModule and styleModule.SetOpen then
-                styleModule.SetOpen(shopUi, shopIsOpen)
-            end
-
-            -- MenuFx owner
-            local fxOk, fxModule = pcall(function()
-                return require(ReplicatedStorage:FindFirstChild("MenuFx"))
-            end)
-            if fxOk and fxModule and fxModule.SetOwner then
-                fxModule.SetOwner(shopUi, shopIsOpen)
-            end
-
-            -- Fallback: langsung toggle Visible
+            -- Langsung toggle Visible (tidak pakai require - tidak didukung executor)
             if shopUi:FindFirstChild("Overlay") then
                 shopUi.Overlay.Visible = shopIsOpen
             end
             if shopUi:FindFirstChild("Panel") then
                 shopUi.Panel.Visible = shopIsOpen
             end
+            -- Coba semua child yang mungkin
+            for _, child in ipairs(shopUi:GetChildren()) do
+                if child:IsA("Frame") or child:IsA("ScreenGui") or child:IsA("GuiObject") then
+                    child.Visible = shopIsOpen
+                end
+            end
         end)
         Rayfield:Notify({
             Title   = shopIsOpen and "🛒  Egg Grabber Shop Dibuka" or "🚪  Egg Grabber Shop Ditutup",
-            Content = shopIsOpen and "UI Egg Grabber Shop terbuka!" or "UI Egg Grabber Shop ditutup.",
+            Content = shopIsOpen and "UI terbuka!" or "UI ditutup.",
             Duration = 2, Image = 4483362458,
         })
     end,
@@ -1146,47 +1136,38 @@ ShopTab:CreateButton({
     Name = "⚡  Beli & Equip Grabber Terbaru",
     Callback = function()
         local bought = 0
-        pcall(function()
-            local grabberShop = ReplicatedStorage:FindFirstChild("UassetEggGrabberShop")
-            if not grabberShop then return end
+        -- Panggil "Get" dulu agar server init state, lalu beli grabber 1-20
+        local grabberShop = ReplicatedStorage:FindFirstChild("UassetEggGrabberShop")
+        if not grabberShop then
+            Rayfield:Notify({
+                Title = "❌  Gagal", Content = "UassetEggGrabberShop tidak ditemukan.",
+                Duration = 2, Image = 4483362458,
+            })
+            return
+        end
 
-            -- WAJIB: panggil "Get" dulu agar server init state
-            local owned = grabberShop:InvokeServer("Get")
+        local owned = nil
+        pcall(function() owned = grabberShop:InvokeServer("Get") end)
+        task.wait(0.2)
 
-            local cfg  = ReplicatedStorage:FindFirstChild("UassetEggGrabberConfig")
-            local conf = cfg and pcall(function() return require(cfg) end) and require(cfg)
-            local order = conf and conf.Order
-
-            if order then
-                for _, grabId in ipairs(order) do
-                    -- Cek apakah sudah dimiliki
-                    local alreadyOwned = false
-                    if owned and type(owned) == "table" then
-                        for _, ownedId in ipairs(owned) do
-                            if ownedId == grabId then alreadyOwned = true; break end
-                        end
-                    end
-                    if not alreadyOwned then
-                        pcall(function() grabberShop:InvokeServer("Buy", grabId) end)
-                        bought = bought + 1
-                        task.wait(0.2)
-                    end
-                    -- Equip yang terakhir / terbaru
-                    pcall(function() grabberShop:InvokeServer("Equip", grabId) end)
-                    task.wait(0.1)
-                end
-            else
-                -- Fallback tanpa config: coba beli & equip langsung
-                for grabId = 1, 20 do
-                    pcall(function() grabberShop:InvokeServer("Buy", grabId) end)
-                    pcall(function() grabberShop:InvokeServer("Equip", grabId) end)
-                    task.wait(0.1)
+        for grabId = 1, 20 do
+            local alreadyOwned = false
+            if owned and type(owned) == "table" then
+                for _, ownedId in ipairs(owned) do
+                    if ownedId == grabId then alreadyOwned = true; break end
                 end
             end
-        end)
+            if not alreadyOwned then
+                pcall(function() grabberShop:InvokeServer("Buy", grabId) end)
+                bought = bought + 1
+            end
+            pcall(function() grabberShop:InvokeServer("Equip", grabId) end)
+            task.wait(0.1)
+        end
+
         Rayfield:Notify({
             Title   = "🧺  Egg Grabber",
-            Content = "Proses beli & pasang Egg Grabber selesai! (" .. bought .. " grabber baru dibeli)",
+            Content = "Selesai! " .. bought .. " grabber baru dibeli & semua di-equip.",
             Duration = 3, Image = 4483362458,
         })
     end,
@@ -1197,15 +1178,12 @@ ShopTab:CreateSection("⚙️  Gear & Trap Shop")
 ShopTab:CreateButton({
     Name = "🪤  Beli Golden Trap (Gunakan Coins)",
     Callback = function()
-        pcall(function()
-            local gearShop = ReplicatedStorage:FindFirstChild("UassetGearShop")
-            if gearShop then
-                -- WAJIB: panggil Snapshot dulu agar server init state
-                pcall(function() gearShop:InvokeServer("Snapshot") end)
-                task.wait(0.2)
-                gearShop:InvokeServer("Purchase")
-            end
-        end)
+        local gearShop = ReplicatedStorage:FindFirstChild("UassetGearShop")
+        if gearShop then
+            pcall(function() gearShop:InvokeServer("Snapshot") end)
+            task.wait(0.2)
+            pcall(function() gearShop:InvokeServer("Purchase") end)
+        end
         Rayfield:Notify({
             Title   = "⚙️  Gear Shop",
             Content = "Trap dibeli jika koin mencukupi.",
@@ -1217,15 +1195,12 @@ ShopTab:CreateButton({
 ShopTab:CreateButton({
     Name = "🎟️  Beli Golden Trap (Gunakan Tokens)",
     Callback = function()
-        pcall(function()
-            local gearShop = ReplicatedStorage:FindFirstChild("UassetGearShop")
-            if gearShop then
-                -- WAJIB: panggil Snapshot dulu agar server init state
-                pcall(function() gearShop:InvokeServer("Snapshot") end)
-                task.wait(0.2)
-                gearShop:InvokeServer("PurchaseTokens")
-            end
-        end)
+        local gearShop = ReplicatedStorage:FindFirstChild("UassetGearShop")
+        if gearShop then
+            pcall(function() gearShop:InvokeServer("Snapshot") end)
+            task.wait(0.2)
+            pcall(function() gearShop:InvokeServer("PurchaseTokens") end)
+        end
         Rayfield:Notify({
             Title   = "⚙️  Gear Shop",
             Content = "Trap dibeli menggunakan token jika token mencukupi.",
