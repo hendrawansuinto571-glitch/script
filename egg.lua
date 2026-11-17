@@ -259,50 +259,127 @@ EggTab:CreateSlider({
     end,
 })
 
+-- ═══════════════════════════════════════════
+--  FUNGSI AUTO FARM TELUR (GRAB + SAFE ZONE TP)
+-- ═══════════════════════════════════════════
+
+-- Pastikan Egg Grabber ter-equip di karakter
+local function ensureEggGrabberEquipped()
+    local char = getCharacter()
+    local hum  = getHumanoid()
+    if not char or not hum then return false end
+
+    -- Sudah ada di tangan?
+    if char:FindFirstChild("Egg Grabber") then return true end
+
+    -- Coba equip dari Backpack
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    if bp then
+        local tool = bp:FindFirstChild("Egg Grabber")
+        if tool then
+            pcall(function() hum:EquipTool(tool) end)
+            task.wait(0.3)
+            return char:FindFirstChild("Egg Grabber") ~= nil
+        end
+    end
+    return false
+end
+
+-- Ambil 1 telur dari sungai lalu langsung TP ke plot / safe zone
+local function farmSingleEgg()
+    -- 1. Cek apakah sudah membawa telur
+    if LocalPlayer:GetAttribute("CarriedEggId") then return end
+    if LocalPlayer:GetAttribute("InSaveZone") or LocalPlayer:GetAttribute("InSafeZone") then return end
+
+    local runtime    = workspace:FindFirstChild("GameplayRuntime")
+    local activeEggs = runtime and runtime:FindFirstChild("ActiveEggs")
+    local grabRemote = getGameplayRemote("Grab")
+    if not activeEggs or not grabRemote then return end
+
+    -- 2. Cari telur terdekat yang belum diklaim
+    local root = getRootPart()
+    if not root then return end
+
+    local nearest, nearestPart, nearestDist = nil, nil, math.huge
+    for _, egg in ipairs(activeEggs:GetChildren()) do
+        if egg:IsA("Model") and not egg:GetAttribute("ClaimedBy") then
+            local pp = egg.PrimaryPart or egg:FindFirstChildWhichIsA("BasePart", true)
+            if pp then
+                local d = (root.Position - pp.Position).Magnitude
+                if d < nearestDist then
+                    nearestDist = d
+                    nearest     = egg
+                    nearestPart = pp
+                end
+            end
+        end
+    end
+    if not nearest then return end
+
+    -- 3. Equip Egg Grabber
+    if not ensureEggGrabberEquipped() then return end
+
+    -- 4. Teleport ke dekat telur
+    root.CFrame = nearestPart.CFrame + Vector3.new(0, 3, 4)
+    task.wait(0.1)
+
+    -- 5. Fire Grab remote
+    local shotTag = tostring(math.random(1000, 9999)) .. "_" .. tostring(math.floor(os.clock() * 1000))
+    pcall(function()
+        grabRemote:FireServer(nearest, shotTag, { TargetOffset = Vector3.new(0, 0, 0) })
+    end)
+    task.wait(0.35)
+
+    -- 6. Jika berhasil grab (ada CarriedEggId), langsung TP ke plot / safe zone
+    if LocalPlayer:GetAttribute("CarriedEggId") then
+        local plot = getMyPlot()
+        if plot then
+            local pp = plot.PrimaryPart or plot:FindFirstChildWhichIsA("BasePart", true)
+            if pp then root.CFrame = pp.CFrame + Vector3.new(0, 4, 0) end
+        else
+            -- Fallback: cari SafeZone di workspace
+            local safeZone = workspace:FindFirstChild("SafeZone") or workspace:FindFirstChild("SaveZone")
+            if safeZone then
+                local sp = safeZone:IsA("Model") and (safeZone.PrimaryPart or safeZone:FindFirstChildWhichIsA("BasePart", true))
+                           or (safeZone:IsA("BasePart") and safeZone)
+                if sp then root.CFrame = sp.CFrame + Vector3.new(0, 4, 0) end
+            end
+        end
+        task.wait(0.4)
+
+        -- 7. Store telur ke inventory
+        pcall(function()
+            local req = getUassetRequest()
+            if req then
+                req:FireServer("StoreEgg", "Back")
+                task.wait(0.15)
+                req:FireServer("StoreEgg", nil)
+            end
+        end)
+        task.wait(0.3)
+    end
+end
+
 task.spawn(function()
     while true do
         if autoGrabRiver then
-            pcall(function()
-                local runtime = workspace:FindFirstChild("GameplayRuntime")
-                local activeEggs = runtime and runtime:FindFirstChild("ActiveEggs")
-                local grabRemote = getGameplayRemote("Grab")
-                if activeEggs and grabRemote then
-                    for _, egg in ipairs(activeEggs:GetChildren()) do
-                        if not autoGrabRiver then break end
-                        if egg:IsA("Model") and not egg:GetAttribute("ClaimedBy") then
-                            local shotTag = tostring(math.random(100, 999)) .. "_" .. tostring(math.floor(os.clock() * 1000))
-                            grabRemote:FireServer(egg, shotTag, { TargetOffset = Vector3.new(0, 0, 0) })
-                            task.wait(grabDelay)
-                        end
-                    end
-                end
-            end)
+            pcall(farmSingleEgg)
         end
-        task.wait(0.3)
+        task.wait(autoGrabRiver and grabDelay or 0.5)
     end
 end)
 
 EggTab:CreateButton({
-    Name = "🎯  Grab Semua Telur Sungai Sekali",
+    Name = "🎯  Grab 1 Telur + TP Safe Zone (Manual)",
     Callback = function()
-        local count = 0
+        local ok = false
         pcall(function()
-            local runtime = workspace:FindFirstChild("GameplayRuntime")
-            local activeEggs = runtime and runtime:FindFirstChild("ActiveEggs")
-            local grabRemote = getGameplayRemote("Grab")
-            if activeEggs and grabRemote then
-                for _, egg in ipairs(activeEggs:GetChildren()) do
-                    if egg:IsA("Model") and not egg:GetAttribute("ClaimedBy") then
-                        count = count + 1
-                        local shotTag = tostring(count) .. "_" .. tostring(math.floor(os.clock() * 1000))
-                        grabRemote:FireServer(egg, shotTag, { TargetOffset = Vector3.new(0, 0, 0) })
-                    end
-                end
-            end
+            farmSingleEgg()
+            ok = true
         end)
         Rayfield:Notify({
-            Title   = "🎯  Grab Sweep",
-            Content = count > 0 and ("Mengambil " .. count .. " telur dari sungai!") or "Tidak ada telur yang tersedia di sungai saat ini.",
+            Title   = "🎯  Grab Telur",
+            Content = ok and "Grab telur + TP Safe Zone berhasil dijalankan!" or "Gagal grab telur (tidak ada telur / Egg Grabber tidak ditemukan).",
             Duration = 3, Image = 4483362458,
         })
     end,
@@ -1021,41 +1098,95 @@ local ShopTab = Window:CreateTab("  Shop & Gear", 4483362458)
 
 ShopTab:CreateSection("🧺  Egg Grabber Shop")
 
+-- Toggle buka/tutup Egg Grabber Shop UI
+local shopIsOpen = false
 ShopTab:CreateButton({
-    Name = "🛒  Buka UI Egg Grabber Shop",
+    Name = "🛒  Buka / Tutup Egg Grabber Shop",
     Callback = function()
         pcall(function()
-            local pGui = LocalPlayer:FindFirstChild("PlayerGui")
+            local pGui   = LocalPlayer:FindFirstChild("PlayerGui")
             local shopUi = pGui and pGui:FindFirstChild("EggGrabberShopUI")
-            if shopUi and shopUi:FindFirstChild("Overlay") then
-                shopUi.Overlay.Visible = true
-                if shopUi:FindFirstChild("Panel") then
-                    shopUi.Panel.Visible = true
-                end
+            if not shopUi then return end
+
+            shopIsOpen = not shopIsOpen
+
+            -- Panggil SetOpen agar animation/state di-handle game
+            local styleOk, styleModule = pcall(function()
+                return require(ReplicatedStorage:FindFirstChild("UassetEggGrabberShopStyle"))
+            end)
+            if styleOk and styleModule and styleModule.SetOpen then
+                styleModule.SetOpen(shopUi, shopIsOpen)
+            end
+
+            -- MenuFx owner
+            local fxOk, fxModule = pcall(function()
+                return require(ReplicatedStorage:FindFirstChild("MenuFx"))
+            end)
+            if fxOk and fxModule and fxModule.SetOwner then
+                fxModule.SetOwner(shopUi, shopIsOpen)
+            end
+
+            -- Fallback: langsung toggle Visible
+            if shopUi:FindFirstChild("Overlay") then
+                shopUi.Overlay.Visible = shopIsOpen
+            end
+            if shopUi:FindFirstChild("Panel") then
+                shopUi.Panel.Visible = shopIsOpen
             end
         end)
+        Rayfield:Notify({
+            Title   = shopIsOpen and "🛒  Egg Grabber Shop Dibuka" or "🚪  Egg Grabber Shop Ditutup",
+            Content = shopIsOpen and "UI Egg Grabber Shop terbuka!" or "UI Egg Grabber Shop ditutup.",
+            Duration = 2, Image = 4483362458,
+        })
     end,
 })
 
 ShopTab:CreateButton({
     Name = "⚡  Beli & Equip Grabber Terbaru",
     Callback = function()
+        local bought = 0
         pcall(function()
             local grabberShop = ReplicatedStorage:FindFirstChild("UassetEggGrabberShop")
-            local cfg = ReplicatedStorage:FindFirstChild("UassetEggGrabberConfig")
-            if grabberShop and cfg then
-                local conf = require(cfg)
-                if conf and conf.Order then
-                    for _, grabId in ipairs(conf.Order) do
-                        grabberShop:InvokeServer("Buy", grabId)
-                        grabberShop:InvokeServer("Equip", grabId)
+            if not grabberShop then return end
+
+            -- WAJIB: panggil "Get" dulu agar server init state
+            local owned = grabberShop:InvokeServer("Get")
+
+            local cfg  = ReplicatedStorage:FindFirstChild("UassetEggGrabberConfig")
+            local conf = cfg and pcall(function() return require(cfg) end) and require(cfg)
+            local order = conf and conf.Order
+
+            if order then
+                for _, grabId in ipairs(order) do
+                    -- Cek apakah sudah dimiliki
+                    local alreadyOwned = false
+                    if owned and type(owned) == "table" then
+                        for _, ownedId in ipairs(owned) do
+                            if ownedId == grabId then alreadyOwned = true; break end
+                        end
                     end
+                    if not alreadyOwned then
+                        pcall(function() grabberShop:InvokeServer("Buy", grabId) end)
+                        bought = bought + 1
+                        task.wait(0.2)
+                    end
+                    -- Equip yang terakhir / terbaru
+                    pcall(function() grabberShop:InvokeServer("Equip", grabId) end)
+                    task.wait(0.1)
+                end
+            else
+                -- Fallback tanpa config: coba beli & equip langsung
+                for grabId = 1, 20 do
+                    pcall(function() grabberShop:InvokeServer("Buy", grabId) end)
+                    pcall(function() grabberShop:InvokeServer("Equip", grabId) end)
+                    task.wait(0.1)
                 end
             end
         end)
         Rayfield:Notify({
             Title   = "🧺  Egg Grabber",
-            Content = "Proses beli & pasang Egg Grabber terbaik selesai!",
+            Content = "Proses beli & pasang Egg Grabber selesai! (" .. bought .. " grabber baru dibeli)",
             Duration = 3, Image = 4483362458,
         })
     end,
@@ -1069,6 +1200,9 @@ ShopTab:CreateButton({
         pcall(function()
             local gearShop = ReplicatedStorage:FindFirstChild("UassetGearShop")
             if gearShop then
+                -- WAJIB: panggil Snapshot dulu agar server init state
+                pcall(function() gearShop:InvokeServer("Snapshot") end)
+                task.wait(0.2)
                 gearShop:InvokeServer("Purchase")
             end
         end)
@@ -1086,6 +1220,9 @@ ShopTab:CreateButton({
         pcall(function()
             local gearShop = ReplicatedStorage:FindFirstChild("UassetGearShop")
             if gearShop then
+                -- WAJIB: panggil Snapshot dulu agar server init state
+                pcall(function() gearShop:InvokeServer("Snapshot") end)
+                task.wait(0.2)
                 gearShop:InvokeServer("PurchaseTokens")
             end
         end)
@@ -1667,34 +1804,60 @@ MoveTab:CreateSlider({
 })
 
 -- JumpPower
-MoveTab:CreateSection("🦘  Jump Power")
+MoveTab:CreateSection("🦘  Jump Power / Height")
 
 MoveTab:CreateSlider({
-    Name         = "Jump Height / Power",
-    Range        = {7, 500},
-    Increment    = 1,
-    Suffix       = " jmp",
-    CurrentValue = 7,
+    Name         = "Jump Power  (UseJumpPower = true)",
+    Range        = {10, 500},
+    Increment    = 5,
+    Suffix       = " pwr",
+    CurrentValue = 50,   -- default Roblox = 50
     Flag         = "Slider_JumpPower",
     Callback     = function(v)
         local hum = getHumanoid()
-        if hum then
+        if not hum then return end
+        -- Hanya set JumpPower jika game menggunakan JumpPower, bukan JumpHeight
+        if hum.UseJumpPower then
             hum.JumpPower = v
+        else
+            -- Konversi range: power 50 ≈ height 7.2
+            hum.JumpHeight = v / 50 * 7.2
+        end
+    end,
+})
+
+MoveTab:CreateSlider({
+    Name         = "Jump Height (UseJumpPower = false)",
+    Range        = {1, 100},
+    Increment    = 0.5,
+    Suffix       = " h",
+    CurrentValue = 7.2,  -- default Roblox = 7.2
+    Flag         = "Slider_JumpHeight",
+    Callback     = function(v)
+        local hum = getHumanoid()
+        if not hum then return end
+        if not hum.UseJumpPower then
             pcall(function() hum.JumpHeight = v end)
+        else
+            -- Konversi: height 7.2 ≈ power 50
+            hum.JumpPower = math.max(1, v / 7.2 * 50)
         end
     end,
 })
 
 MoveTab:CreateButton({
-    Name = "🔄  Reset Jump → 7",
+    Name = "🔄  Reset Jump → Default",
     Callback = function()
         local hum = getHumanoid()
         if hum then
-            hum.JumpPower = 7
-            pcall(function() hum.JumpHeight = 7 end)
+            if hum.UseJumpPower then
+                hum.JumpPower = 50
+            else
+                pcall(function() hum.JumpHeight = 7.2 end)
+            end
         end
         Rayfield:Notify({
-            Title = "🔄  Reset Jump", Content = "Jump Power kembali ke default (7)",
+            Title = "🔄  Reset Jump", Content = "Jump kembali ke nilai default Roblox",
             Duration = 2, Image = 4483362458,
         })
     end,
@@ -1704,10 +1867,10 @@ MoveTab:CreateButton({
 MoveTab:CreateSection("⚡  Preset Instan")
 
 local presets = {
-    { name = "🐢  Normal",  spd = 16,  jmp = 7,   label = "Speed 16 · Jump 7" },
-    { name = "🐇  Medium",  spd = 50,  jmp = 50,  label = "Speed 50 · Jump 50" },
-    { name = "🚀  Turbo",   spd = 200, jmp = 200, label = "Speed 200 · Jump 200" },
-    { name = "💀  God Mode",spd = 500, jmp = 500, label = "Speed 500 · Jump 500 — HATI-HATI!" },
+    { name = "🐢  Normal",  spd = 16,  jmp = 50,  jh = 7.2,  label = "Speed 16 · Jump Default" },
+    { name = "🐇  Medium",  spd = 50,  jmp = 100, jh = 14,   label = "Speed 50 · Jump 100" },
+    { name = "🚀  Turbo",   spd = 200, jmp = 250, jh = 36,   label = "Speed 200 · Jump 250" },
+    { name = "💀  God Mode",spd = 500, jmp = 500, jh = 72,   label = "Speed 500 · Jump 500 — HATI-HATI!" },
 }
 
 for _, p in ipairs(presets) do
@@ -1717,8 +1880,11 @@ for _, p in ipairs(presets) do
             local hum = getHumanoid()
             if hum then
                 hum.WalkSpeed = p.spd
-                hum.JumpPower = p.jmp
-                pcall(function() hum.JumpHeight = p.jmp end)
+                if hum.UseJumpPower then
+                    hum.JumpPower = p.jmp
+                else
+                    pcall(function() hum.JumpHeight = p.jh end)
+                end
             end
             Rayfield:Notify({
                 Title   = p.name .. " Aktif!",
