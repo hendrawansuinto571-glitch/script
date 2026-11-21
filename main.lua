@@ -592,6 +592,41 @@ end
 local NemesisHub = {}
 NemesisHub.__index = NemesisHub
 
+
+-- ═══════════════════════════════════════════
+--  SMOOTH KINETIC SCROLL ENGINE
+-- ═══════════════════════════════════════════
+local function makeSmoothScroll(scrollFrame, scrollStep)
+    scrollStep = scrollStep or 75
+    scrollFrame.ElasticBehavior = Enum.ElasticBehavior.Always
+    scrollFrame.ScrollingDirection = Enum.ScrollingDirection.Y
+    scrollFrame.ScrollBarThickness = 3
+    scrollFrame.ScrollBarImageColor3 = THEME.AccentPurple
+    scrollFrame.ScrollBarImageTransparency = 0.4
+
+    local targetY = scrollFrame.CanvasPosition.Y
+    local scrollTween = nil
+
+    scrollFrame.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseWheel then
+            local maxY = math.max(0, scrollFrame.AbsoluteCanvasSize.Y - scrollFrame.AbsoluteWindowSize.Y)
+            targetY = math.clamp(targetY - (input.Position.Z * scrollStep), 0, maxY)
+
+            if scrollTween then scrollTween:Cancel() end
+            scrollTween = TweenService:Create(scrollFrame, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                CanvasPosition = Vector2.new(0, targetY)
+            })
+            scrollTween:Play()
+        end
+    end)
+
+    scrollFrame:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
+        if not scrollTween or scrollTween.PlaybackState ~= Enum.PlaybackState.Playing then
+            targetY = scrollFrame.CanvasPosition.Y
+        end
+    end)
+end
+
 function NemesisHub:CreateWindow(config)
     config = config or {}
     local TitleName    = config.Name or "NEMESIS"
@@ -635,6 +670,10 @@ function NemesisHub:CreateWindow(config)
     mfStroke.Color = THEME.Stroke
     mfStroke.Thickness = 1.2
     mfStroke.Parent = MainFrame
+
+    local mfScale = Instance.new("UIScale")
+    mfScale.Scale = 1
+    mfScale.Parent = MainFrame
 
     -- Dragging Logic
     do
@@ -756,6 +795,7 @@ function NemesisHub:CreateWindow(config)
     navPadding.PaddingLeft = UDim.new(0, 14)
     navPadding.PaddingRight = UDim.new(0, 14)
     navPadding.Parent = NavScroll
+    makeSmoothScroll(NavScroll, 60)
 
     -- UI Settings Button at bottom sidebar
     local BottomSettings = Instance.new("TextButton")
@@ -870,7 +910,7 @@ function NemesisHub:CreateWindow(config)
     sIcon.Parent = SearchBox
 
     local sInput = Instance.new("TextBox")
-    sInput.Size = UDim2.new(1, -30, 1, 0)
+    sInput.Size = UDim2.new(1, -50, 1, 0)
     sInput.Position = UDim2.new(0, 26, 0, 0)
     sInput.BackgroundTransparency = 1
     sInput.PlaceholderText = "Search tabs/groups..."
@@ -881,6 +921,62 @@ function NemesisHub:CreateWindow(config)
     sInput.TextColor3 = THEME.TextWhite
     sInput.TextXAlignment = Enum.TextXAlignment.Left
     sInput.Parent = SearchBox
+
+    local sClear = Instance.new("ImageButton")
+    sClear.Size = UDim2.new(0, 14, 0, 14)
+    sClear.Position = UDim2.new(1, -20, 0.5, -7)
+    sClear.BackgroundTransparency = 1
+    sClear.Image = ICONS.close
+    sClear.ImageColor3 = THEME.TextMuted
+    sClear.Visible = false
+    sClear.Parent = SearchBox
+
+    local function performSearch(query)
+        query = string.lower(string.gsub(query or "", "^%s*(.-)%s*$", "%1"))
+        sClear.Visible = (query ~= "")
+
+        -- Filter Sidebar Tabs
+        for tabName, tabObj in pairs(Window.Tabs) do
+            if tabObj.NavButton then
+                if query == "" then
+                    tabObj.NavButton.Visible = true
+                else
+                    local matchTab = string.find(string.lower(tabName), query, 1, true) ~= nil
+                    tabObj.NavButton.Visible = matchTab
+                end
+            end
+        end
+
+        -- Filter Current Active Page Elements
+        if Window.CurrentTab and Window.CurrentTab.Page then
+            local page = Window.CurrentTab.Page
+            for _, child in ipairs(page:GetChildren()) do
+                if child:IsA("GuiObject") and child.Name ~= "UIPadding" and child.Name ~= "UIListLayout" then
+                    if query == "" then
+                        child.Visible = true
+                    else
+                        local matched = false
+                        for _, desc in ipairs(child:GetDescendants()) do
+                            if desc:IsA("TextLabel") and string.find(string.lower(desc.Text), query, 1, true) then
+                                matched = true
+                                break
+                            end
+                        end
+                        child.Visible = matched
+                    end
+                end
+            end
+        end
+    end
+
+    sInput:GetPropertyChangedSignal("Text"):Connect(function()
+        performSearch(sInput.Text)
+    end)
+
+    sClear.MouseButton1Click:Connect(function()
+        sInput.Text = ""
+        performSearch("")
+    end)
 
     -- Star & Bell
     local starBtn = Instance.new("ImageButton")
@@ -916,24 +1012,133 @@ function NemesisHub:CreateWindow(config)
     closeBtn.ImageColor3 = THEME.TextSecondary
     closeBtn.Parent = ToolsContainer
 
+    -- ╔═══════════════════════════════════════════╗
+    -- ║  FLOATING MINI POP-UP KOTAK WIDGET        ║
+    -- ╚═══════════════════════════════════════════╝
+    local MiniBox = Instance.new("Frame")
+    MiniBox.Name = "NemesisMiniKotak"
+    MiniBox.Size = UDim2.new(0, 48, 0, 48)
+    MiniBox.Position = UDim2.new(0, 24, 0.5, -24)
+    MiniBox.BackgroundColor3 = THEME.BgCard
+    MiniBox.BorderSizePixel = 0
+    MiniBox.Visible = false
+    MiniBox.Parent = ScreenGui
+
+    local mbCorner = Instance.new("UICorner")
+    mbCorner.CornerRadius = UDim.new(0, 12)
+    mbCorner.Parent = MiniBox
+
+    local mbStroke = Instance.new("UIStroke")
+    mbStroke.Color = THEME.AccentPurple
+    mbStroke.Thickness = 1.5
+    mbStroke.Parent = MiniBox
+
+    local mbZap = Instance.new("ImageLabel")
+    mbZap.Size = UDim2.new(0, 24, 0, 24)
+    mbZap.Position = UDim2.new(0.5, -12, 0.5, -12)
+    mbZap.BackgroundTransparency = 1
+    mbZap.Image = ICONS.zap
+    mbZap.ImageColor3 = THEME.AccentNeon
+    mbZap.Parent = MiniBox
+
+    local mbScale = Instance.new("UIScale")
+    mbScale.Scale = 1
+    mbScale.Parent = MiniBox
+
+    local mbBtn = Instance.new("TextButton")
+    mbBtn.Size = UDim2.new(1, 0, 1, 0)
+    mbBtn.BackgroundTransparency = 1
+    mbBtn.Text = ""
+    mbBtn.Parent = MiniBox
+
+    -- Dragging MiniBox
+    do
+        local mbDragging = false
+        local mbDragStart, mbStartPos
+
+        mbBtn.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                mbDragging = true
+                mbDragStart = input.Position
+                mbStartPos = MiniBox.Position
+
+                input.Changed:Connect(function()
+                    if input.UserInputState == Enum.UserInputState.End then
+                        mbDragging = false
+                    end
+                end)
+            end
+        end)
+
+        UserInputService.InputChanged:Connect(function(input)
+            if mbDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+                local delta = input.Position - mbDragStart
+                MiniBox.Position = UDim2.new(
+                    mbStartPos.X.Scale,
+                    mbStartPos.X.Offset + delta.X,
+                    mbStartPos.Y.Scale,
+                    mbStartPos.Y.Offset + delta.Y
+                )
+            end
+        end)
+    end
+
     local isMinimized = false
-    minBtn.MouseButton1Click:Connect(function()
-        isMinimized = not isMinimized
-        if isMinimized then
-            TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad), { Size = UDim2.new(0, 840, 0, 68) }):Play()
-        else
-            TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad), { Size = UDim2.new(0, 840, 0, 520) }):Play()
-        end
-    end)
+    local function minimizeWindow()
+        if isMinimized then return end
+        isMinimized = true
+
+        local twShrink = TweenService:Create(mfScale, TweenInfo.new(0.24, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Scale = 0.4 })
+        local twFade   = TweenService:Create(MainFrame, TweenInfo.new(0.22, Enum.EasingStyle.Quad), { BackgroundTransparency = 1 })
+        twShrink:Play()
+        twFade:Play()
+
+        twShrink.Completed:Connect(function()
+            MainFrame.Visible = false
+            MainFrame.BackgroundTransparency = 0
+            mfScale.Scale = 1
+
+            MiniBox.Visible = true
+            mbScale.Scale = 0.2
+            TweenService:Create(mbScale, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+        end)
+    end
+
+    local function restoreWindow()
+        if not isMinimized then return end
+        isMinimized = false
+
+        local twPopOut = TweenService:Create(mbScale, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Scale = 0.2 })
+        twPopOut:Play()
+
+        twPopOut.Completed:Connect(function()
+            MiniBox.Visible = false
+            mbScale.Scale = 1
+
+            MainFrame.Visible = true
+            mfScale.Scale = 0.7
+            MainFrame.BackgroundTransparency = 0.5
+            TweenService:Create(mfScale, TweenInfo.new(0.28, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+            TweenService:Create(MainFrame, TweenInfo.new(0.24, Enum.EasingStyle.Quad), { BackgroundTransparency = 0 }):Play()
+        end)
+    end
+
+    minBtn.MouseButton1Click:Connect(minimizeWindow)
+    mbBtn.MouseButton1Click:Connect(restoreWindow)
 
     closeBtn.MouseButton1Click:Connect(function()
         MainFrame.Visible = false
+        MiniBox.Visible = false
     end)
 
     -- Toggle Hotkey (RightControl or RightShift)
     UserInputService.InputBegan:Connect(function(input, gp)
         if not gp and (input.KeyCode == Enum.KeyCode.RightControl or input.KeyCode == Enum.KeyCode.RightShift) then
-            MainFrame.Visible = not MainFrame.Visible
+            if isMinimized or not MainFrame.Visible then
+                restoreWindow()
+            else
+                minimizeWindow()
+            end
         end
     end)
 
@@ -964,6 +1169,7 @@ function NemesisHub:CreateWindow(config)
     dbPadding.PaddingTop = UDim.new(0, 6)
     dbPadding.PaddingBottom = UDim.new(0, 20)
     dbPadding.Parent = DashboardPage
+    makeSmoothScroll(DashboardPage, 80)
 
     -- 1. TOP USER CARD (BENTO TOP)
     local UserCard = Instance.new("Frame")
@@ -1063,36 +1269,6 @@ function NemesisHub:CreateWindow(config)
     vbT.TextColor3 = THEME.AccentNeon
     vbT.Parent = vBadge
 
-    -- VIP Badge
-    local vipBadge = Instance.new("Frame")
-    vipBadge.Size = UDim2.new(0, 58, 1, 0)
-    vipBadge.BackgroundColor3 = Color3.fromRGB(38, 30, 20)
-    vipBadge.BorderSizePixel = 0
-    vipBadge.Parent = BadgesRow
-    local vipC = Instance.new("UICorner")
-    vipC.CornerRadius = UDim.new(0, 6)
-    vipC.Parent = vipBadge
-    local vipStroke = Instance.new("UIStroke")
-    vipStroke.Color = THEME.AccentVipGold
-    vipStroke.Thickness = 1
-    vipStroke.Parent = vipBadge
-    local vipIcon = Instance.new("ImageLabel")
-    vipIcon.Size = UDim2.new(0, 12, 0, 12)
-    vipIcon.Position = UDim2.new(0, 6, 0.5, -6)
-    vipIcon.BackgroundTransparency = 1
-    vipIcon.Image = ICONS.diamond
-    vipIcon.ImageColor3 = THEME.AccentVipGold
-    vipIcon.Parent = vipBadge
-    local vipT = Instance.new("TextLabel")
-    vipT.Size = UDim2.new(1, -22, 1, 0)
-    vipT.Position = UDim2.new(0, 20, 0, 0)
-    vipT.BackgroundTransparency = 1
-    vipT.Text = "VIP"
-    vipT.Font = Enum.Font.GothamBold
-    vipT.TextSize = 10
-    vipT.TextColor3 = THEME.AccentVipGold
-    vipT.TextXAlignment = Enum.TextXAlignment.Left
-    vipT.Parent = vipBadge
 
     -- Lifetime Badge
     local lifeBadge = Instance.new("Frame")
@@ -1712,26 +1888,34 @@ function NemesisHub:CreateWindow(config)
         for _, t in pairs(Window.Tabs) do
             if t.Page then t.Page.Visible = false end
             if t.NavButton then
-                t.NavButton.BackgroundColor3 = THEME.BgSidebar
-                t.NavButton.BackgroundTransparency = 1
+                TweenService:Create(t.NavButton, TweenInfo.new(0.2), { BackgroundTransparency = 1 }):Play()
                 if t.NavStroke then t.NavStroke.Enabled = false end
-                if t.NavIcon then t.NavIcon.ImageColor3 = THEME.TextSecondary end
-                if t.NavText then t.NavText.TextColor3 = THEME.TextSecondary end
+                if t.NavIcon then TweenService:Create(t.NavIcon, TweenInfo.new(0.2), { ImageColor3 = THEME.TextSecondary }):Play() end
+                if t.NavText then TweenService:Create(t.NavText, TweenInfo.new(0.2), { TextColor3 = THEME.TextSecondary }):Play() end
             end
         end
 
         tabObj.Page.Visible = true
+        tabObj.Page.Position = UDim2.new(0, 0, 0, 8)
+        TweenService:Create(tabObj.Page, TweenInfo.new(0.24, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            Position = UDim2.new(0, 0, 0, 0)
+        }):Play()
+
         if tabObj.NavButton then
             tabObj.NavButton.BackgroundColor3 = THEME.AccentPurple
-            tabObj.NavButton.BackgroundTransparency = 0
+            TweenService:Create(tabObj.NavButton, TweenInfo.new(0.2), { BackgroundTransparency = 0 }):Play()
             if tabObj.NavStroke then tabObj.NavStroke.Enabled = true end
-            if tabObj.NavIcon then tabObj.NavIcon.ImageColor3 = THEME.TextWhite end
-            if tabObj.NavText then tabObj.NavText.TextColor3 = THEME.TextWhite end
+            if tabObj.NavIcon then TweenService:Create(tabObj.NavIcon, TweenInfo.new(0.2), { ImageColor3 = THEME.TextWhite }):Play() end
+            if tabObj.NavText then TweenService:Create(tabObj.NavText, TweenInfo.new(0.2), { TextColor3 = THEME.TextWhite }):Play() end
         end
 
         PageTitle.Text = tabObj.Name
         PageSubtitle.Text = (tabObj.Name == "Dashboard" and ("Welcome to " .. TitleName) or (tabObj.Name .. " modules for " .. ActiveGame))
         Window.CurrentTab = tabObj
+
+        if sInput and sInput.Text ~= "" then
+            performSearch(sInput.Text)
+        end
     end
 
     -- Create Navigation Button
@@ -1823,6 +2007,7 @@ function NemesisHub:CreateWindow(config)
         tpPadding.PaddingTop = UDim.new(0, 6)
         tpPadding.PaddingBottom = UDim.new(0, 20)
         tpPadding.Parent = TabPage
+        makeSmoothScroll(TabPage, 70)
 
         local tabObj = {
             Name = tabName,
@@ -2061,10 +2246,19 @@ function NemesisHub:CreateWindow(config)
             dcChev.ImageColor3 = THEME.TextSecondary
             dcChev.Parent = dropCard
 
-            local optsList = Instance.new("Frame")
-            optsList.Size = UDim2.new(1, -16, 0, #options * 30)
+            -- Smooth Scrollable Options Container
+            local itemHeight = 30
+            local visibleItems = math.min(#options, 4)
+            local targetListHeight = visibleItems * itemHeight + 6
+
+            local optsList = Instance.new("ScrollingFrame")
+            optsList.Size = UDim2.new(1, -16, 0, targetListHeight)
             optsList.Position = UDim2.new(0, 8, 0, 44)
             optsList.BackgroundTransparency = 1
+            optsList.BorderSizePixel = 0
+            optsList.ScrollBarThickness = (#options > 4 and 2 or 0)
+            optsList.ScrollBarImageColor3 = THEME.AccentPurple
+            optsList.CanvasSize = UDim2.new(0, 0, 0, #options * itemHeight + 4)
             optsList.Parent = dropCard
 
             local olLayout = Instance.new("UIListLayout")
@@ -2072,12 +2266,26 @@ function NemesisHub:CreateWindow(config)
             olLayout.Padding = UDim.new(0, 2)
             olLayout.Parent = optsList
 
+            if #options > 4 then
+                makeSmoothScroll(optsList, 50)
+            end
+
             local isOpen = false
             local function toggleDropdown()
                 isOpen = not isOpen
-                local targetHeight = isOpen and (48 + #options * 32) or 44
-                TweenService:Create(dropCard, TweenInfo.new(0.25, Enum.EasingStyle.Quad), { Size = UDim2.new(1, 0, 0, targetHeight) }):Play()
-                TweenService:Create(dcChev, TweenInfo.new(0.2), { Rotation = isOpen and 180 or 0 }):Play()
+                local targetCardHeight = isOpen and (50 + targetListHeight) or 44
+
+                TweenService:Create(dropCard, TweenInfo.new(0.24, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                    Size = UDim2.new(1, 0, 0, targetCardHeight)
+                }):Play()
+
+                TweenService:Create(dcS, TweenInfo.new(0.2), {
+                    Color = isOpen and THEME.AccentPurple or THEME.Stroke
+                }):Play()
+
+                TweenService:Create(dcChev, TweenInfo.new(0.24, Enum.EasingStyle.Quart), {
+                    Rotation = isOpen and 180 or 0
+                }):Play()
             end
 
             local topHit = Instance.new("TextButton")
@@ -2097,14 +2305,31 @@ function NemesisHub:CreateWindow(config)
                 optBtn.TextSize = 11
                 optBtn.TextColor3 = THEME.TextSecondary
                 optBtn.TextXAlignment = Enum.TextXAlignment.Left
+                optBtn.AutoButtonColor = false
                 optBtn.Parent = optsList
+
                 local oC = Instance.new("UICorner")
                 oC.CornerRadius = UDim.new(0, 6)
                 oC.Parent = optBtn
 
+                optBtn.MouseEnter:Connect(function()
+                    TweenService:Create(optBtn, TweenInfo.new(0.15), {
+                        BackgroundColor3 = Color3.fromRGB(50, 28, 85),
+                        TextColor3 = THEME.TextWhite
+                    }):Play()
+                end)
+                optBtn.MouseLeave:Connect(function()
+                    TweenService:Create(optBtn, TweenInfo.new(0.15), {
+                        BackgroundColor3 = THEME.BgPill,
+                        TextColor3 = THEME.TextSecondary
+                    }):Play()
+                end)
+
                 optBtn.MouseButton1Click:Connect(function()
                     curVal = opt
                     dcVal.Text = tostring(curVal)
+                    TweenService:Create(optBtn, TweenInfo.new(0.1), { BackgroundColor3 = THEME.AccentPurple }):Play()
+                    task.wait(0.1)
                     toggleDropdown()
                     pcall(cb, curVal)
                 end)
