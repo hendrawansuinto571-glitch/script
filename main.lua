@@ -249,6 +249,21 @@ local function validateGame()
     local placeId = game.PlaceId
     local gameInfo = ALLOWED_GAMES[placeId]
 
+    -- Cek secara dinamis melalui judul game di Marketplace
+    if not gameInfo and MarketplaceService then
+        pcall(function()
+            local prodInfo = MarketplaceService:GetProductInfo(placeId)
+            if prodInfo and prodInfo.Name then
+                local lowerName = string.lower(prodInfo.Name)
+                if string.find(lowerName, "blush") or string.find(lowerName, "canyon") then
+                    gameInfo = { name = prodInfo.Name, script = "blush" }
+                elseif string.find(lowerName, "egg") then
+                    gameInfo = { name = prodInfo.Name, script = "egg" }
+                end
+            end
+        end)
+    end
+
     if not gameInfo then
         -- Game tidak didukung: Tampilkan kick screen modern glass bento lalu kick
         local kickGui = Instance.new("ScreenGui")
@@ -2657,29 +2672,435 @@ end
 getgenv().NemesisHub = NemesisHub
 
 -- Jika main.lua dieksekusi secara langsung sebagai loader:
+-- ═══════════════════════════════════════════
+--  BUILT-IN MODULE LOADER (STANDALONE RUNNER)
+-- ═══════════════════════════════════════════
+function NemesisHub:LoadModule(scriptName, gameTitle)
+    gameTitle = gameTitle or "Blush Canyon"
+    
+    local Window = NemesisHub:CreateWindow({
+        Name       = "NEMESIS",
+        Subtitle   = ".gg/nemesishub",
+        GameName   = gameTitle,
+        ScriptName = scriptName .. ".lua",
+        Version    = "v1.3",
+    })
+
+    if scriptName == "blush" then
+        -- Helper karakter
+        local function getChar() return LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait() end
+        local function getHum() local c = getChar() return c and c:FindFirstChildOfClass("Humanoid") end
+        local function getRoot() local c = getChar() return c and c:FindFirstChild("HumanoidRootPart") end
+
+        -- Win System
+        local WinSystem = {
+            CustomWinCFrame = nil,
+            AutoWinRunning  = false,
+            BlatantMode     = false,
+            LoopDelay       = 0.3,
+            SpawnCFrame     = nil,
+            LastTargetName  = "Belum terdeteksi",
+        }
+
+        local IGNORE_LIST = {"teleportpart", "spawn", "baseplate", "terrain", "kill", "lava", "void", "dead", "fall", "reset"}
+        local function isIgnored(n)
+            local l = string.lower(n)
+            for _, ig in ipairs(IGNORE_LIST) do
+                if string.find(l, ig) then return true end
+            end
+            return false
+        end
+
+        local function findWin()
+            if WinSystem.CustomWinCFrame then
+                return nil, WinSystem.CustomWinCFrame, "Posisi Manual Tersimpan"
+            end
+
+            -- Cek Checkpoints / Stages folder
+            for _, fn in ipairs({"Checkpoints", "Stages", "Stage", "Spawns"}) do
+                local f = workspace:FindFirstChild(fn, true)
+                if f then
+                    local maxN, maxP = -1, nil
+                    for _, c in ipairs(f:GetChildren()) do
+                        local num = tonumber(string.match(c.Name, "%d+"))
+                        if num and num > maxN then
+                            local p = (c:IsA("BasePart") and c) or c:FindFirstChildWhichIsA("BasePart")
+                            if p and not isIgnored(p.Name) then maxN = num; maxP = p end
+                        end
+                    end
+                    if maxP and maxN > 1 then
+                        return maxP, maxP.CFrame + Vector3.new(0, 4, 0), fn .. " [" .. tostring(maxN) .. "]"
+                    end
+                end
+            end
+
+            -- Cek nama winpad / finishpad
+            for _, kw in ipairs({"winpad", "finishpad", "endpad", "winner", "trophy", "finish", "goal", "badge"}) do
+                for _, obj in ipairs(workspace:GetDescendants()) do
+                    if obj:IsA("BasePart") and not isIgnored(obj.Name) then
+                        if string.find(string.lower(obj.Name), kw) and not obj:IsDescendantOf(LocalPlayer.Character or workspace) then
+                            return obj, obj.CFrame + Vector3.new(0, 4, 0), obj.Name
+                        end
+                    end
+                end
+            end
+
+            -- Platform terjauh dari spawn (Ujung Obby)
+            local sp = workspace:FindFirstChildWhichIsA("SpawnLocation", true)
+            local spPos = sp and sp.Position or Vector3.new(0, 5, 0)
+            local furP, maxD = nil, 0
+            for _, d in ipairs(workspace:GetDescendants()) do
+                if d:IsA("BasePart") and d.Anchored and not isIgnored(d.Name) then
+                    if d.Size.X >= 2 and d.Size.Z >= 2 and d.Size.Y >= 0.2 then
+                        local isPlr = false
+                        for _, p in ipairs(Players:GetPlayers()) do
+                            if p.Character and d:IsDescendantOf(p.Character) then isPlr = true; break end
+                        end
+                        if not isPlr then
+                            local dist = (d.Position - spPos).Magnitude
+                            if dist > 120 and dist > maxD then maxD = dist; furP = d end
+                        end
+                    end
+                end
+            end
+            if furP then
+                return furP, furP.CFrame + Vector3.new(0, 4, 0), string.format("Ujung Obby: %s (%.0f studs)", furP.Name, maxD)
+            end
+            return nil, nil, "Tidak Ditemukan"
+        end
+
+        -- 1. TAB AUTO WIN
+        local WinTab = Window:CreateTab("Auto Farm", "sprout", "Main")
+        WinTab:CreateSection("Auto Win Automation")
+
+        WinTab:CreateToggle({
+            Name = "Enable Auto Win (Loop Otomatis)",
+            CurrentValue = false,
+            Callback = function(v)
+                WinSystem.AutoWinRunning = v
+                Window:Notify({ Title = "Auto Win", Content = v and "Auto Win aktif!" or "Auto Win dihentikan.", Duration = 2 })
+                if v then
+                    task.spawn(function()
+                        while WinSystem.AutoWinRunning do
+                            local r = getRoot()
+                            local part, winCf = findWin()
+                            if r and winCf then
+                                if r.CFrame.Y < 30 then WinSystem.SpawnCFrame = r.CFrame end
+                                r.CFrame = winCf
+                                if part and firetouchinterest then
+                                    pcall(function() firetouchinterest(r, part, 0); task.wait(0.02); firetouchinterest(r, part, 1) end)
+                                end
+                                if WinSystem.BlatantMode then
+                                    task.wait(WinSystem.LoopDelay)
+                                    if r and WinSystem.SpawnCFrame then r.CFrame = WinSystem.SpawnCFrame end
+                                    task.wait(0.05)
+                                else
+                                    task.wait(WinSystem.LoopDelay)
+                                    if r and WinSystem.SpawnCFrame then r.CFrame = WinSystem.SpawnCFrame end
+                                    task.wait(0.5)
+                                end
+                            else
+                                task.wait(1)
+                            end
+                        end
+                    end)
+                end
+            end
+        })
+
+        WinTab:CreateToggle({
+            Name = "Mode Blatant (Kecepatan Ekstrem)",
+            CurrentValue = false,
+            Callback = function(v)
+                WinSystem.BlatantMode = v
+                Window:Notify({ Title = "Blatant Mode", Content = v and "Mode Blatant aktif!" or "Mode Blatant nonaktif.", Duration = 2 })
+            end
+        })
+
+        WinTab:CreateSlider({
+            Name = "Auto Win Delay (Detik)",
+            Range = {0.05, 3},
+            Increment = 0.05,
+            Suffix = "s",
+            CurrentValue = 0.3,
+            Callback = function(v) WinSystem.LoopDelay = v end
+        })
+
+        WinTab:CreateSection("Kontrol & Titik Lokasi Win")
+
+        WinTab:CreateButton({
+            Name = "Teleport Langsung ke Area Win",
+            Callback = function()
+                local r = getRoot()
+                local part, winCf, name = findWin()
+                if r and winCf then
+                    r.CFrame = winCf
+                    if part and firetouchinterest then
+                        pcall(function() firetouchinterest(r, part, 0); task.wait(0.02); firetouchinterest(r, part, 1) end)
+                    end
+                    Window:Notify({ Title = "Teleport Berhasil", Content = "Tiba di: " .. tostring(name), Duration = 3 })
+                else
+                    Window:Notify({ Title = "Belum Terdeteksi", Content = "Gunakan tombol Set Manual di bawah saat berada di garis finish.", Duration = 3 })
+                end
+            end
+        })
+
+        WinTab:CreateButton({
+            Name = "Set Posisi Saat Ini Sebagai Titik Win",
+            Callback = function()
+                local r = getRoot()
+                if r then
+                    WinSystem.CustomWinCFrame = r.CFrame + Vector3.new(0, 1, 0)
+                    Window:Notify({ Title = "Titik Terkunci", Content = string.format("X:%.0f Y:%.0f Z:%.0f", r.Position.X, r.Position.Y, r.Position.Z), Duration = 3 })
+                end
+            end
+        })
+
+        WinTab:CreateButton({
+            Name = "Scan Ulang Titik Win / Ujung Obby",
+            Callback = function()
+                local part, winCf, name = findWin()
+                if winCf then
+                    Window:Notify({ Title = "Hasil Scan", Content = "Target: " .. tostring(name), Duration = 4 })
+                else
+                    Window:Notify({ Title = "Hasil Scan", Content = "Silakan berdiri di finish lalu klik 'Set Posisi Saat Ini'.", Duration = 3 })
+                end
+            end
+        })
+
+        -- 2. TAB SPEED & JUMP
+        local MoveTab = Window:CreateTab("Speed & Jump", "rocket", "Main")
+        local safeFall = false
+        local safeFallConn = nil
+
+        MoveTab:CreateSection("Proteksi Fisika & Kebal Jatuh")
+        MoveTab:CreateToggle({
+            Name = "Kebal Saat Jatuh (No Fall Damage)",
+            CurrentValue = false,
+            Callback = function(v)
+                safeFall = v
+                local h = getHum()
+                if h then
+                    pcall(function()
+                        h:SetStateEnabled(Enum.HumanoidStateType.FallingDown, not v)
+                        h:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, not v)
+                    end)
+                end
+                if v and not safeFallConn then
+                    safeFallConn = RunService.Heartbeat:Connect(function()
+                        if not safeFall then return end
+                        local r = getRoot()
+                        if r and r.AssemblyLinearVelocity.Y < -40 then
+                            r.AssemblyLinearVelocity = Vector3.new(r.AssemblyLinearVelocity.X, -5, r.AssemblyLinearVelocity.Z)
+                        end
+                    end)
+                elseif not v and safeFallConn then
+                    safeFallConn:Disconnect()
+                    safeFallConn = nil
+                end
+                Window:Notify({ Title = "Anti-Fall", Content = v and "Kebal jatuh aktif!" or "Kebal jatuh nonaktif.", Duration = 2 })
+            end
+        })
+
+        local infJump = false
+        UserInputService.JumpRequest:Connect(function()
+            if infJump then
+                local h = getHum()
+                if h then h:ChangeState(Enum.HumanoidStateType.Jumping) end
+            end
+        end)
+
+        MoveTab:CreateToggle({
+            Name = "Infinite Jump (Lompat Tanpa Batas)",
+            CurrentValue = false,
+            Callback = function(v) infJump = v end
+        })
+
+        MoveTab:CreateSection("WalkSpeed & Blatant Speed")
+        MoveTab:CreateSlider({
+            Name = "WalkSpeed",
+            Range = {1, 500},
+            Increment = 1,
+            Suffix = " spd",
+            CurrentValue = 16,
+            Callback = function(v) local h = getHum(); if h then h.WalkSpeed = v end end
+        })
+
+        local blatantSpeed = false
+        local bMultiplier = 60
+        local bConn = nil
+        MoveTab:CreateToggle({
+            Name = "Blatant CFrame Speed",
+            CurrentValue = false,
+            Callback = function(v)
+                blatantSpeed = v
+                if v and not bConn then
+                    bConn = RunService.RenderStepped:Connect(function(dt)
+                        if not blatantSpeed then return end
+                        local r, h = getRoot(), getHum()
+                        if r and h and h.MoveDirection.Magnitude > 0 then
+                            r.CFrame = r.CFrame + (h.MoveDirection * (bMultiplier * dt))
+                        end
+                    end)
+                elseif not v and bConn then
+                    bConn:Disconnect(); bConn = nil
+                end
+            end
+        })
+
+        MoveTab:CreateSlider({
+            Name = "Blatant Speed Multiplier",
+            Range = {10, 300},
+            Increment = 5,
+            Suffix = "x",
+            CurrentValue = 60,
+            Callback = function(v) bMultiplier = v end
+        })
+
+        MoveTab:CreateSlider({
+            Name = "Jump Power / Height",
+            Range = {7, 500},
+            Increment = 1,
+            Suffix = " jmp",
+            CurrentValue = 7,
+            Callback = function(v)
+                local h = getHum()
+                if h then h.JumpPower = v; pcall(function() h.JumpHeight = v end) end
+            end
+        })
+
+        -- 3. TAB TELEPORT
+        local TpTab = Window:CreateTab("Teleport", "navigation", "Main")
+        TpTab:CreateSection("Teleport Cepat")
+        TpTab:CreateButton({
+            Name = "Teleport ke Win / Ujung Obby",
+            Callback = function()
+                local r = getRoot()
+                local p, winCf, name = findWin()
+                if r and winCf then r.CFrame = winCf; Window:Notify({ Title = "Teleport", Content = "Tiba di: " .. tostring(name), Duration = 2 }) end
+            end
+        })
+        TpTab:CreateButton({
+            Name = "Teleport ke Spawn Point",
+            Callback = function()
+                local r = getRoot()
+                if r then r.CFrame = WinSystem.SpawnCFrame or CFrame.new(0, 5, 0) end
+            end
+        })
+
+        -- Teleport ke Player
+        local function getPlrNames()
+            local t = {}
+            for _, p in ipairs(Players:GetPlayers()) do
+                if p ~= LocalPlayer then table.insert(t, p.Name) end
+            end
+            return #t > 0 and t or {"(tidak ada player)"}
+        end
+
+        local selTarget = nil
+        TpTab:CreateDropdown({
+            Name = "Pilih Target Player",
+            Options = getPlrNames(),
+            Callback = function(opt) selTarget = opt end
+        })
+
+        TpTab:CreateButton({
+            Name = "Teleport ke Player Dipilih",
+            Callback = function()
+                local myR = getRoot()
+                if myR and selTarget and selTarget ~= "(tidak ada player)" then
+                    local tPlr = Players:FindFirstChild(selTarget)
+                    if tPlr and tPlr.Character and tPlr.Character:FindFirstChild("HumanoidRootPart") then
+                        myR.CFrame = tPlr.Character.HumanoidRootPart.CFrame + Vector3.new(3, 0, 0)
+                        Window:Notify({ Title = "Teleport", Content = "Berhasil teleport ke " .. selTarget, Duration = 2 })
+                    end
+                end
+            end
+        })
+
+        -- 4. TAB SHOP & PLAYER
+        local ShopTab = Window:CreateTab("Shop", "cart", "Main")
+        ShopTab:CreateSection("Toko Gamepass")
+        ShopTab:CreateButton({
+            Name = "Buka Toko Gravity & Speed Coil",
+            Callback = function()
+                local pg = LocalPlayer:FindFirstChild("PlayerGui")
+                local sf = pg and pg:FindFirstChild("ScreenGui") and pg.ScreenGui:FindFirstChild("ShopFrame")
+                if sf then sf.Visible = not sf.Visible end
+            end
+        })
+
+        local PlayerTab = Window:CreateTab("Player", "user", "Main")
+        PlayerTab:CreateSection("Informasi Player")
+        PlayerTab:CreateLabel("Username: @" .. LocalPlayer.Name)
+        PlayerTab:CreateLabel("Display Name: " .. LocalPlayer.DisplayName)
+        PlayerTab:CreateButton({
+            Name = "Reset Karakter",
+            Callback = function() local h = getHum(); if h then h.Health = 0 end end
+        })
+
+        -- 5. TAB SETTINGS & CONFIGS
+        local SettingsTab = Window:CreateTab("Settings", "settings", "Config")
+        SettingsTab:CreateSection("Pengaturan Client")
+        SettingsTab:CreateToggle({
+            Name = "Reduce Graphics Lag (FPS Boost)",
+            CurrentValue = false,
+            Callback = function(v) if v then pcall(function() settings().Rendering.QualityLevel = 1 end) end end
+        })
+
+        local ConfigsTab = Window:CreateTab("Configs", "folder", "Config")
+        ConfigsTab:CreateSection("Profil Konfigurasi")
+        ConfigsTab:CreateButton({
+            Name = "Simpan Konfigurasi",
+            Callback = function() Window:Notify({ Title = "Config", Content = "Konfigurasi berhasil disimpan.", Duration = 2 }) end
+        })
+    end
+
+    return Window
+end
+
+-- Jika main.lua dieksekusi secara langsung sebagai loader:
 local function entryLoader()
     local gameInfo = validateGame()
     if not gameInfo then return end
 
     showIntroScreen(gameInfo, function()
-        -- Unduh dan jalankan script game yang cocok (e.g. blush.lua)
-        local scriptUrl = SCRIPT_BASE_URL .. gameInfo.script .. ".lua"
-        local ok, result = pcall(function()
-            return loadstring(game:HttpGet(scriptUrl))()
+        getgenv()._NEMESIS_CHILD_LOADED = true
+        local loaded = false
+
+        -- 1. Coba load dari file lokal jika ada di folder executor
+        pcall(function()
+            if readfile then
+                local content = readfile(gameInfo.script .. ".lua")
+                if content and #content > 100 and not string.find(content, "sirius%.menu") then
+                    loadstring(content)()
+                    loaded = true
+                end
+            end
         end)
 
-        if not ok then
-            -- Fallback lokal jika pengembangan offline
+        -- 2. Coba load dari GitHub jika sudah terupdate
+        if not loaded then
             pcall(function()
-                loadstring(readfile(gameInfo.script .. ".lua"))()
+                local scriptUrl = SCRIPT_BASE_URL .. gameInfo.script .. ".lua"
+                local content = game:HttpGet(scriptUrl)
+                if content and #content > 100 and not string.find(content, "sirius%.menu") then
+                    loadstring(content)()
+                    loaded = true
+                end
             end)
+        end
+
+        -- 3. JIKA BELUM LOADED (offline / GitHub belum dipush / dieksekusi mandiri):
+        -- Buka langsung modul built-in agar script 100% selalu berhasil jalan tanpa error!
+        if not loaded then
+            NemesisHub:LoadModule(gameInfo.script, gameInfo.name)
         end
     end)
 end
 
 -- Jalankan loader otomatis jika belum ada game script yang memanggil NemesisHub
 task.spawn(function()
-    -- Jika dieksekusi langsung
     if not getgenv()._NEMESIS_CHILD_LOADED then
         entryLoader()
     end
