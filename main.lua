@@ -29,33 +29,33 @@ local ALLOWED_GAMES = {
 
 -- Lucide Vector Icons (rbxassetid) — NO EMOJIS!
 local ICONS = {
-    zap         = "rbxassetid://10709775963",
-    grid        = "rbxassetid://10723415766",
-    sprout      = "rbxassetid://10734950309",
-    cart        = "rbxassetid://10709791437",
-    user        = "rbxassetid://10709793466",
-    sliders     = "rbxassetid://10723424838",
-    settings    = "rbxassetid://10709784346",
-    folder      = "rbxassetid://10723387563",
-    play        = "rbxassetid://10734923549",
-    gamepad     = "rbxassetid://10723396107",
-    activity    = "rbxassetid://10709769841",
-    history     = "rbxassetid://10709770560",
-    clock       = "rbxassetid://10709770375",
-    search      = "rbxassetid://10734914528",
-    star        = "rbxassetid://10734918731",
-    bell        = "rbxassetid://10709771197",
-    chevronDown = "rbxassetid://10709790948",
-    chevronRight= "rbxassetid://10709790812",
-    diamond     = "rbxassetid://10723376114",
-    wifi        = "rbxassetid://10734947932",
-    monitor     = "rbxassetid://10723417131",
-    close       = "rbxassetid://10709790644",
-    minus       = "rbxassetid://10734896206",
-    navigation  = "rbxassetid://10734898144",
-    rocket      = "rbxassetid://10709787160",
-    shieldAlert = "rbxassetid://10709782230",
-    check       = "rbxassetid://10709790387",
+    zap         = "rbxassetid://7734094924",
+    grid        = "rbxassetid://7733964719",
+    sprout      = "rbxassetid://7734068321",
+    cart        = "rbxassetid://7734056813",
+    user        = "rbxassetid://7743878358",
+    sliders     = "rbxassetid://7734059095",
+    settings    = "rbxassetid://7734053495",
+    folder      = "rbxassetid://7733955511",
+    play        = "rbxassetid://7734022107",
+    gamepad     = "rbxassetid://7733955740",
+    activity    = "rbxassetid://7733658504",
+    history     = "rbxassetid://7733960012",
+    clock       = "rbxassetid://7733911828",
+    search      = "rbxassetid://7734052925",
+    star        = "rbxassetid://7734068495",
+    bell        = "rbxassetid://7733674602",
+    chevronDown = "rbxassetid://7733717444",
+    chevronRight= "rbxassetid://7733717646",
+    diamond     = "rbxassetid://7733924046",
+    wifi        = "rbxassetid://7734093446",
+    monitor     = "rbxassetid://7733990288",
+    close       = "rbxassetid://7743878857",
+    minus       = "rbxassetid://7733978098",
+    navigation  = "rbxassetid://7733993211",
+    rocket      = "rbxassetid://7734042071",
+    shieldAlert = "rbxassetid://7734056411",
+    check       = "rbxassetid://7733715400",
 }
 
 -- ═══════════════════════════════════════════
@@ -1835,16 +1835,18 @@ function NemesisHub:CreateWindow(config)
     Window.Tabs["Dashboard"] = DashboardTabObj
     Window.CurrentTab = DashboardTabObj
 
-    -- Categories registry in Sidebar
+    -- Categories registry in Sidebar (Interactive Collapsible Accordion)
     local Categories = {}
 
     local function getCategoryHeader(catName, order)
         if Categories[catName] then return Categories[catName] end
 
-        local catContainer = Instance.new("Frame")
+        local catContainer = Instance.new("TextButton")
         catContainer.Name = "Cat_" .. catName
         catContainer.Size = UDim2.new(1, 0, 0, 30)
         catContainer.BackgroundTransparency = 1
+        catContainer.AutoButtonColor = false
+        catContainer.Text = ""
         catContainer.LayoutOrder = order or 1
         catContainer.Parent = NavScroll
 
@@ -1875,8 +1877,52 @@ function NemesisHub:CreateWindow(config)
         catChev.ImageColor3 = THEME.TextMuted
         catChev.Parent = catContainer
 
-        Categories[catName] = catContainer
-        return catContainer
+        local catData = {
+            Container = catContainer,
+            Chevron = catChev,
+            Expanded = true,
+            Tabs = {},
+        }
+
+        local function toggleCategory()
+            catData.Expanded = not catData.Expanded
+            TweenService:Create(catChev, TweenInfo.new(0.24, Enum.EasingStyle.Quart), {
+                Rotation = catData.Expanded and 0 or -90
+            }):Play()
+
+            for _, tabBtn in ipairs(catData.Tabs) do
+                if catData.Expanded then
+                    tabBtn.Visible = true
+                    TweenService:Create(tabBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {
+                        Size = UDim2.new(1, 0, 0, 36)
+                    }):Play()
+                else
+                    local tw = TweenService:Create(tabBtn, TweenInfo.new(0.18, Enum.EasingStyle.Quad), {
+                        Size = UDim2.new(1, 0, 0, 0)
+                    })
+                    tw:Play()
+                    tw.Completed:Connect(function()
+                        if not catData.Expanded then
+                            tabBtn.Visible = false
+                        end
+                    end)
+                end
+            end
+        end
+
+        catContainer.MouseButton1Click:Connect(toggleCategory)
+
+        catContainer.MouseEnter:Connect(function()
+            TweenService:Create(catText, TweenInfo.new(0.15), { TextColor3 = THEME.AccentNeon }):Play()
+            TweenService:Create(catChev, TweenInfo.new(0.15), { ImageColor3 = THEME.TextWhite }):Play()
+        end)
+        catContainer.MouseLeave:Connect(function()
+            TweenService:Create(catText, TweenInfo.new(0.15), { TextColor3 = THEME.TextWhite }):Play()
+            TweenService:Create(catChev, TweenInfo.new(0.15), { ImageColor3 = THEME.TextMuted }):Play()
+        end)
+
+        Categories[catName] = catData
+        return catData
     end
 
     -- Create Category headers
@@ -1921,11 +1967,13 @@ function NemesisHub:CreateWindow(config)
     -- Create Navigation Button
     local function addNavButton(tabObj, iconName, categoryName, order)
         categoryName = categoryName or "Main"
-        getCategoryHeader(categoryName)
+        local catData = getCategoryHeader(categoryName)
 
         local btn = Instance.new("TextButton")
         btn.Name = "NavBtn_" .. tabObj.Name
         btn.Size = UDim2.new(1, 0, 0, 36)
+        btn.ClipsDescendants = true
+        table.insert(catData.Tabs, btn)
         btn.BackgroundColor3 = THEME.BgSidebar
         btn.BackgroundTransparency = 1
         btn.BorderSizePixel = 0
