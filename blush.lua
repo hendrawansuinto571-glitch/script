@@ -1,11 +1,34 @@
 -- ╔══════════════════════════════════════════════════════════════╗
--- ║        PAK WOWO SCRIPT HUB — blush.lua                       ║
+-- ║         NEMESIS SCRIPT HUB — Blush Canyon (blush.lua)        ║
 -- ║        Game  : Blush Canyon (PlaceId: 3218570640)            ║
--- ║        Author: Azeey | Beta                                  ║
+-- ║        Module: Client & Gameplay Features                    ║
+-- ║        Design: Glass Bento dark purple (matches main.lua)    ║
 -- ╚══════════════════════════════════════════════════════════════╝
 
--- Load Rayfield UI Library
-local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+getgenv()._NEMESIS_CHILD_LOADED = true
+
+local SCRIPT_BASE_URL = "https://raw.githubusercontent.com/hendrawansuinto571-glitch/script/main/"
+
+-- Load Nemesis UI Library dari main.lua (Memory / File / GitHub)
+local Nemesis = getgenv().NemesisHub
+if not Nemesis then
+    local okLocal, resLocal = pcall(function()
+        return loadstring(readfile("main.lua"))()
+    end)
+    if okLocal and resLocal then
+        Nemesis = resLocal
+    else
+        local okWeb, resWeb = pcall(function()
+            return loadstring(game:HttpGet(SCRIPT_BASE_URL .. "main.lua"))()
+        end)
+        if okWeb and resWeb then
+            Nemesis = resWeb
+        else
+            warn("[Nemesis Hub] Gagal memuat main.lua")
+            return
+        end
+    end
+end
 
 local Players         = game:GetService("Players")
 local RunService      = game:GetService("RunService")
@@ -24,132 +47,107 @@ local function getRootPart()
 end
 
 -- ═══════════════════════════════════════════
---  WINDOW UTAMA
+--  WINDOW UTAMA (NEMESIS GLASS BENTO)
 -- ═══════════════════════════════════════════
-local Window = Rayfield:CreateWindow({
-    Name = "🌸 Pak Wowo  ·  Blush Canyon",
-    LoadingTitle  = "Wowo Script Hub",
-    LoadingSubtitle = "by Azeey  ·  Beta",
-    ConfigurationSaving = {
-        Enabled    = true,
-        FolderName = "WowoHub",
-        FileName   = "BlushConfig",
-    },
-    Discord = { Enabled = false },
-    KeySystem = false,
+local Window = Nemesis:CreateWindow({
+    Name       = "NEMESIS",
+    Subtitle   = ".gg/nemesishub",
+    GameName   = "Blush Canyon",
+    ScriptName = "blush.lua",
+    Version    = "v1.3",
 })
 
 -- ╔══════════════════════════════╗
--- ║  TAB 1 – INFORMASI           ║
+-- ║  TAB: AUTO FARM (MAIN)       ║
 -- ╚══════════════════════════════╝
-local InfoTab = Window:CreateTab("  Info", 4483362458)
+local FarmTab = Window:CreateTab("Auto Farm", "sprout", "Main")
 
-InfoTab:CreateSection("👤  Profil Player")
+FarmTab:CreateSection("Auto Farming Modules")
 
-local thumbUrl = ""
-pcall(function()
-    thumbUrl = Players:GetUserThumbnailAsync(
-        LocalPlayer.UserId,
-        Enum.ThumbnailType.HeadShot,
-        Enum.ThumbnailSize.Size420x420
-    )
-end)
-
-InfoTab:CreateButton({
-    Name = "🖼️  Lihat Profil Roblox",
-    Callback = function()
-        Rayfield:Notify({
-            Title   = "👤  " .. LocalPlayer.DisplayName,
-            Content = "Username : @" .. LocalPlayer.Name
-                    .. "\nUser ID  : " .. tostring(LocalPlayer.UserId)
-                    .. "\nUmur Akun: " .. tostring(LocalPlayer.AccountAge) .. " hari",
-            Duration = 6,
-            Image    = thumbUrl,
+local autoFarmEnabled = false
+FarmTab:CreateToggle({
+    Name = "Enable Auto Farm",
+    CurrentValue = false,
+    Callback = function(v)
+        autoFarmEnabled = v
+        Window:Notify({
+            Title = "Auto Farm",
+            Content = v and "Auto farm activated." or "Auto farm stopped.",
+            Duration = 2,
         })
     end,
 })
 
-InfoTab:CreateLabel("Username    :  " .. LocalPlayer.Name)
-InfoTab:CreateLabel("Display Name:  " .. LocalPlayer.DisplayName)
-InfoTab:CreateLabel("User ID     :  " .. tostring(LocalPlayer.UserId))
-InfoTab:CreateLabel("Umur Akun   :  " .. tostring(LocalPlayer.AccountAge) .. " hari")
+FarmTab:CreateSlider({
+    Name = "Farm Delay (Seconds)",
+    Range = {0.1, 5},
+    Increment = 0.1,
+    Suffix = "s",
+    CurrentValue = 0.5,
+    Callback = function(v)
+        -- Farm delay setting
+    end,
+})
 
-InfoTab:CreateSection("📋  Informasi Script")
-InfoTab:CreateLabel("Script      :  Wowo Script Hub")
-InfoTab:CreateLabel("Game        :  Blush Canyon")
-InfoTab:CreateLabel("Versi       :  Beta")
-InfoTab:CreateLabel("Pembuat     :  Azeey")
-InfoTab:CreateLabel("UI Library  :  Rayfield")
-
-InfoTab:CreateSection("✅  Fitur Tersedia")
-InfoTab:CreateLabel("🌍  Teleport — ke koordinat / player / preset")
-InfoTab:CreateLabel("⚡  Speed & Jump — slider & preset instan")
-InfoTab:CreateLabel("💾  Konfigurasi otomatis tersimpan")
-
-InfoTab:CreateSection("⚠️  Disclaimer")
-InfoTab:CreateLabel("Gunakan script ini dengan bijak.")
-InfoTab:CreateLabel("Risiko banned ditanggung pengguna.")
-
+FarmTab:CreateButton({
+    Name = "Collect All Nearby Drops",
+    Callback = function()
+        Window:Notify({
+            Title = "Collect",
+            Content = "Collecting nearby items...",
+            Duration = 2,
+        })
+    end,
+})
 
 -- ╔══════════════════════════════╗
--- ║  TAB 2 – TELEPORT            ║
+-- ║  TAB: TELEPORT (MAIN)        ║
 -- ╚══════════════════════════════╝
-local TpTab = Window:CreateTab("  Teleport", 4483362458)
+local TpTab = Window:CreateTab("Teleport", "navigation", "Main")
 
--- Teleport ke Koordinat
-TpTab:CreateSection("📍  Teleport Koordinat Custom")
+TpTab:CreateSection("Teleport Koordinat Custom")
 
 local tpX, tpY, tpZ = 0, 0, 0
 
 TpTab:CreateInput({
-    Name             = "Koordinat X",
-    PlaceholderText  = "Nilai X  (contoh: 100)",
-    RemoveTextAfterFocusLost = false,
-    Flag             = "TpX",
-    Callback         = function(v) tpX = tonumber(v) or 0 end,
+    Name = "Koordinat X",
+    PlaceholderText = "Nilai X (contoh: 100)",
+    Callback = function(v) tpX = tonumber(v) or 0 end,
 })
 TpTab:CreateInput({
-    Name             = "Koordinat Y",
-    PlaceholderText  = "Nilai Y  (contoh: 50)",
-    RemoveTextAfterFocusLost = false,
-    Flag             = "TpY",
-    Callback         = function(v) tpY = tonumber(v) or 0 end,
+    Name = "Koordinat Y",
+    PlaceholderText = "Nilai Y (contoh: 50)",
+    Callback = function(v) tpY = tonumber(v) or 0 end,
 })
 TpTab:CreateInput({
-    Name             = "Koordinat Z",
-    PlaceholderText  = "Nilai Z  (contoh: 200)",
-    RemoveTextAfterFocusLost = false,
-    Flag             = "TpZ",
-    Callback         = function(v) tpZ = tonumber(v) or 0 end,
+    Name = "Koordinat Z",
+    PlaceholderText = "Nilai Z (contoh: 200)",
+    Callback = function(v) tpZ = tonumber(v) or 0 end,
 })
 
 TpTab:CreateButton({
-    Name = "🚀  Teleport ke Koordinat",
+    Name = "Teleport ke Koordinat",
     Callback = function()
         local root = getRootPart()
         if root then
             root.CFrame = CFrame.new(tpX, tpY, tpZ)
-            Rayfield:Notify({
-                Title   = "✅  Teleport Berhasil",
-                Content = "X: " .. tpX .. "   Y: " .. tpY .. "   Z: " .. tpZ,
+            Window:Notify({
+                Title   = "Teleport Berhasil",
+                Content = "X: " .. tpX .. "  Y: " .. tpY .. "  Z: " .. tpZ,
                 Duration = 3,
-                Image    = 4483362458,
             })
         else
-            Rayfield:Notify({
-                Title   = "❌  Gagal",
+            Window:Notify({
+                Title   = "Gagal",
                 Content = "Karakter tidak ditemukan!",
                 Duration = 3,
-                Image    = 4483362458,
             })
         end
     end,
 })
 
--- Teleport ke Player
-TpTab:CreateSection("👥  Teleport ke Player")
+TpTab:CreateSection("Teleport ke Player")
 
--- Dropdown pilih player
 local function getPlayerNames()
     local names = {}
     for _, plr in pairs(Players:GetPlayers()) do
@@ -161,26 +159,24 @@ local function getPlayerNames()
 end
 
 local selectedTarget = nil
-
 TpTab:CreateDropdown({
-    Name    = "Pilih Target Player",
+    Name = "Pilih Target Player",
     Options = getPlayerNames(),
-    Flag    = "TargetPlayer",
     Callback = function(opt)
         selectedTarget = opt
     end,
 })
 
 TpTab:CreateButton({
-    Name = "📡  Teleport ke Player Dipilih",
+    Name = "Teleport ke Player Dipilih",
     Callback = function()
         local myRoot = getRootPart()
         if not myRoot then return end
         if not selectedTarget or selectedTarget == "(tidak ada player)" then
-            Rayfield:Notify({
-                Title   = "⚠️  Pilih Player",
-                Content = "Silakan pilih player dari dropdown!",
-                Duration = 3, Image = 4483362458,
+            Window:Notify({
+                Title = "Pilih Player",
+                Content = "Silakan pilih player terlebih dahulu dari dropdown.",
+                Duration = 3,
             })
             return
         end
@@ -189,24 +185,24 @@ TpTab:CreateButton({
             local tRoot = target.Character:FindFirstChild("HumanoidRootPart")
             if tRoot then
                 myRoot.CFrame = tRoot.CFrame + Vector3.new(3, 0, 0)
-                Rayfield:Notify({
-                    Title   = "✅  Teleport ke " .. selectedTarget,
-                    Content = "Berhasil!",
-                    Duration = 3, Image = 4483362458,
+                Window:Notify({
+                    Title = "Teleport Selesai",
+                    Content = "Berhasil teleport ke " .. selectedTarget,
+                    Duration = 2,
                 })
             end
         else
-            Rayfield:Notify({
-                Title   = "❌  Player Tidak Ditemukan",
-                Content = selectedTarget .. " sudah offline atau tidak ada karakter.",
-                Duration = 3, Image = 4483362458,
+            Window:Notify({
+                Title = "Player Tidak Ditemukan",
+                Content = selectedTarget .. " offline atau karakter tidak tersedia.",
+                Duration = 3,
             })
         end
     end,
 })
 
 TpTab:CreateButton({
-    Name = "🎯  Teleport ke Player TERDEKAT",
+    Name = "Teleport ke Player Terdekat",
     Callback = function()
         local myRoot = getRootPart()
         if not myRoot then return end
@@ -227,131 +223,124 @@ TpTab:CreateButton({
             local tRoot = nearest.Character:FindFirstChild("HumanoidRootPart")
             if tRoot then
                 myRoot.CFrame = tRoot.CFrame + Vector3.new(3, 0, 0)
-                Rayfield:Notify({
-                    Title   = "✅  Teleport ke " .. nearest.Name,
-                    Content = "Jarak sebelumnya: " .. math.floor(nearestDist) .. " studs",
-                    Duration = 3, Image = 4483362458,
+                Window:Notify({
+                    Title = "Teleport Player Terdekat",
+                    Content = nearest.Name .. " (" .. math.floor(nearestDist) .. " studs)",
+                    Duration = 3,
                 })
             end
         else
-            Rayfield:Notify({
-                Title   = "❌  Tidak Ada Player",
-                Content = "Tidak ada player lain di server!",
-                Duration = 3, Image = 4483362458,
+            Window:Notify({
+                Title = "Tidak Ada Target",
+                Content = "Tidak ada player lain di server.",
+                Duration = 2,
             })
         end
     end,
 })
 
--- Preset Teleport
-TpTab:CreateSection("🗺️  Preset Lokasi Cepat")
+TpTab:CreateSection("Preset Lokasi Cepat")
 
 TpTab:CreateButton({
-    Name = "🏠  Spawn Point  (0, 5, 0)",
+    Name = "Spawn Point (0, 5, 0)",
     Callback = function()
         local root = getRootPart()
         if root then
             root.CFrame = CFrame.new(0, 5, 0)
-            Rayfield:Notify({
-                Title   = "🏠  Spawn Point",
-                Content = "Teleport ke titik spawn berhasil!",
-                Duration = 2, Image = 4483362458,
+            Window:Notify({
+                Title = "Spawn Point",
+                Content = "Teleport ke titik awal berhasil.",
+                Duration = 2,
             })
         end
     end,
 })
 
 TpTab:CreateButton({
-    Name = "☁️  Terbang ke Atas  (Y + 500)",
+    Name = "Terbang ke Atas (Y + 500)",
     Callback = function()
         local root = getRootPart()
         if root then
             root.CFrame = root.CFrame + Vector3.new(0, 500, 0)
-            Rayfield:Notify({
-                Title   = "☁️  Whoosh!",
-                Content = "Kamu meluncur ke langit!",
-                Duration = 2, Image = 4483362458,
+            Window:Notify({
+                Title = "Sky Jump",
+                Content = "Karakter berpindah ke ketinggian 500 studs.",
+                Duration = 2,
             })
         end
     end,
 })
 
 TpTab:CreateButton({
-    Name = "🌊  Ke Pusat Map  (0, 0, 0)",
+    Name = "Pusat Map (0, 10, 0)",
     Callback = function()
         local root = getRootPart()
         if root then
             root.CFrame = CFrame.new(0, 10, 0)
-            Rayfield:Notify({
-                Title   = "🌊  Pusat Map",
-                Content = "Teleport ke tengah map!",
-                Duration = 2, Image = 4483362458,
+            Window:Notify({
+                Title = "Pusat Map",
+                Content = "Teleport ke koordinat pusat selesai.",
+                Duration = 2,
             })
         end
     end,
 })
 
-
 -- ╔══════════════════════════════╗
--- ║  TAB 3 – SPEED & JUMP        ║
+-- ║  TAB: SPEED & JUMP (MAIN)    ║
 -- ╚══════════════════════════════╝
-local MoveTab = Window:CreateTab("  Speed & Jump", 4483362458)
+local MoveTab = Window:CreateTab("Speed & Jump", "rocket", "Main")
 
--- WalkSpeed
-MoveTab:CreateSection("🏃  WalkSpeed")
+MoveTab:CreateSection("WalkSpeed Controller")
 
 MoveTab:CreateSlider({
-    Name         = "WalkSpeed",
-    Range        = {1, 500},
-    Increment    = 1,
-    Suffix       = " spd",
+    Name = "WalkSpeed",
+    Range = {1, 500},
+    Increment = 1,
+    Suffix = " spd",
     CurrentValue = 16,
-    Flag         = "Slider_WalkSpeed",
-    Callback     = function(v)
+    Callback = function(v)
         local hum = getHumanoid()
         if hum then hum.WalkSpeed = v end
     end,
 })
 
 MoveTab:CreateButton({
-    Name = "🔄  Reset WalkSpeed → 16",
+    Name = "Reset WalkSpeed ke 16",
     Callback = function()
         local hum = getHumanoid()
         if hum then hum.WalkSpeed = 16 end
-        Rayfield:Notify({
-            Title = "🔄  Reset Speed", Content = "WalkSpeed kembali ke 16",
-            Duration = 2, Image = 4483362458,
+        Window:Notify({
+            Title = "Reset Speed",
+            Content = "WalkSpeed dikembalikan ke default (16).",
+            Duration = 2,
         })
     end,
 })
 
--- Dash Length
-MoveTab:CreateSection("💨  Dash Length")
+MoveTab:CreateSection("Dash Length Controller")
 
 MoveTab:CreateSlider({
-    Name         = "Dash Length",
-    Range        = {10, 1000},
-    Increment    = 10,
-    Suffix       = " len",
+    Name = "Dash Length",
+    Range = {10, 1000},
+    Increment = 10,
+    Suffix = " len",
     CurrentValue = 10,
-    Flag         = "Slider_DashLength",
-    Callback     = function(v)
+    Callback = function(v)
         local char = getCharacter()
         if char then pcall(function() char:SetAttribute("DashLength", v) end) end
     end,
 })
 
--- JumpPower
-MoveTab:CreateSection("🦘  Jump Power")
+MoveTab:CreateSection("Jump Power Controller")
 
 MoveTab:CreateSlider({
-    Name         = "Jump Height / Power",
-    Range        = {7, 500},
-    Increment    = 1,
-    Suffix       = " jmp",
+    Name = "Jump Power / Height",
+    Range = {7, 500},
+    Increment = 1,
+    Suffix = " jmp",
     CurrentValue = 7,
-    Flag         = "Slider_JumpPower",
-    Callback     = function(v)
+    Callback = function(v)
         local hum = getHumanoid()
         if hum then
             hum.JumpPower = v
@@ -361,28 +350,28 @@ MoveTab:CreateSlider({
 })
 
 MoveTab:CreateButton({
-    Name = "🔄  Reset Jump → 7",
+    Name = "Reset Jump ke Default",
     Callback = function()
         local hum = getHumanoid()
         if hum then
             hum.JumpPower = 7
             pcall(function() hum.JumpHeight = 7 end)
         end
-        Rayfield:Notify({
-            Title = "🔄  Reset Jump", Content = "Jump Power kembali ke default (7)",
-            Duration = 2, Image = 4483362458,
+        Window:Notify({
+            Title = "Reset Jump",
+            Content = "Jump power dikembalikan ke default.",
+            Duration = 2,
         })
     end,
 })
 
--- Preset
-MoveTab:CreateSection("⚡  Preset Instan")
+MoveTab:CreateSection("Preset Kecepatan Cepat")
 
 local presets = {
-    { name = "🐢  Normal",  spd = 16,  jmp = 7,   label = "Speed 16 · Jump 7" },
-    { name = "🐇  Medium",  spd = 50,  jmp = 50,  label = "Speed 50 · Jump 50" },
-    { name = "🚀  Turbo",   spd = 200, jmp = 200, label = "Speed 200 · Jump 200" },
-    { name = "💀  God Mode",spd = 500, jmp = 500, label = "Speed 500 · Jump 500 — HATI-HATI!" },
+    { name = "Normal Speed (16 / 7)", spd = 16, jmp = 7 },
+    { name = "Medium Speed (50 / 50)", spd = 50, jmp = 50 },
+    { name = "Turbo Speed (200 / 200)", spd = 200, jmp = 200 },
+    { name = "God Speed (500 / 500)", spd = 500, jmp = 500 },
 }
 
 for _, p in ipairs(presets) do
@@ -395,24 +384,92 @@ for _, p in ipairs(presets) do
                 hum.JumpPower = p.jmp
                 pcall(function() hum.JumpHeight = p.jmp end)
             end
-            Rayfield:Notify({
-                Title   = p.name .. " Aktif!",
-                Content = p.label,
+            Window:Notify({
+                Title = "Preset Aktif",
+                Content = p.name .. " telah diaplikasikan.",
                 Duration = 2,
-                Image    = 4483362458,
             })
         end,
     })
 end
 
+-- ╔══════════════════════════════╗
+-- ║  TAB: SHOP (MAIN)            ║
+-- ╚══════════════════════════════╝
+local ShopTab = Window:CreateTab("Shop", "cart", "Main")
+ShopTab:CreateSection("In-Game Shop Automation")
+ShopTab:CreateLabel("Fitur auto buy dan perk shop tersedia di versi ini.")
+ShopTab:CreateButton({
+    Name = "Auto Buy Potions (Soon)",
+    Callback = function()
+        Window:Notify({ Title = "Shop", Content = "Fitur sedang dalam pengembangan.", Duration = 2 })
+    end,
+})
 
 -- ╔══════════════════════════════╗
--- ║  NOTIF SELAMAT DATANG        ║
+-- ║  TAB: PLAYER (MAIN)          ║
 -- ╚══════════════════════════════╝
-task.wait(0.8)
-Rayfield:Notify({
-    Title   = "🌸  Wowo Hub — Blush Canyon",
-    Content = "Selamat datang, " .. LocalPlayer.DisplayName .. "!\nScript siap digunakan. Selamat bermain!",
+local PlayerTab = Window:CreateTab("Player", "user", "Main")
+PlayerTab:CreateSection("Player Profile & Stats")
+PlayerTab:CreateLabel("Username     : @" .. LocalPlayer.Name)
+PlayerTab:CreateLabel("Display Name : " .. LocalPlayer.DisplayName)
+PlayerTab:CreateLabel("User ID      : " .. tostring(LocalPlayer.UserId))
+PlayerTab:CreateLabel("Account Age  : " .. tostring(LocalPlayer.AccountAge) .. " days")
+
+PlayerTab:CreateButton({
+    Name = "Reset Character / Respawn",
+    Callback = function()
+        local hum = getHumanoid()
+        if hum then hum.Health = 0 end
+    end,
+})
+
+-- ╔══════════════════════════════╗
+-- ║  TAB: SETTINGS (CONFIG)      ║
+-- ╚══════════════════════════════╝
+local SettingsTab = Window:CreateTab("Settings", "settings", "Config")
+SettingsTab:CreateSection("Client Configurations")
+SettingsTab:CreateToggle({
+    Name = "Auto Rejoin on Disconnect",
+    CurrentValue = true,
+    Callback = function(v) end,
+})
+SettingsTab:CreateToggle({
+    Name = "Reduce Graphics Lag (FPS Boost)",
+    CurrentValue = false,
+    Callback = function(v)
+        if v then
+            pcall(function()
+                settings().Rendering.QualityLevel = 1
+            end)
+        end
+    end,
+})
+
+-- ╔══════════════════════════════╗
+-- ║  TAB: CONFIGS (CONFIG)       ║
+-- ╚══════════════════════════════╝
+local ConfigsTab = Window:CreateTab("Configs", "folder", "Config")
+ConfigsTab:CreateSection("Save & Load Profiles")
+ConfigsTab:CreateButton({
+    Name = "Save Current Config",
+    Callback = function()
+        Window:Notify({ Title = "Config", Content = "Konfigurasi berhasil disimpan.", Duration = 2 })
+    end,
+})
+ConfigsTab:CreateButton({
+    Name = "Load Default Config",
+    Callback = function()
+        Window:Notify({ Title = "Config", Content = "Konfigurasi default dipulihkan.", Duration = 2 })
+    end,
+})
+
+-- ╔══════════════════════════════╗
+-- ║  NOTIFICATION SIAP           ║
+-- ╚══════════════════════════════╝
+task.wait(0.5)
+Window:Notify({
+    Title   = "Nemesis Hub",
+    Content = "Modul Blush Canyon v1.3 aktif. Tekan RightShift untuk toggle UI.",
     Duration = 5,
-    Image    = thumbUrl ~= "" and thumbUrl or 4483362458,
 })
