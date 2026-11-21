@@ -62,47 +62,125 @@ local Window = Nemesis:CreateWindow({
 --  AUTO WIN & WIN LOCATOR SYSTEM
 -- ═══════════════════════════════════════════
 local WinSystem = {
-    CustomWinCFrame = nil,
-    AutoWinRunning  = false,
-    BlatantMode     = false,
-    LoopDelay       = 0.3,
-    SpawnCFrame     = CFrame.new(0, 5, 0),
+    CustomWinCFrame    = nil,
+    AutoWinRunning     = false,
+    BlatantMode        = false,
+    LoopDelay          = 0.3,
+    SpawnCFrame        = nil,
+    LastDetectedName   = "Belum terdeteksi",
 }
 
--- Cari Part Win / TeleportPart / Finish Line secara dinamis
-local function findWinPart()
-    if WinSystem.CustomWinCFrame then
-        return nil, WinSystem.CustomWinCFrame
-    end
+-- Blacklist part yang BUKAN Win (termasuk TeleportPart void-reset, killbrick, spawn)
+local IGNORE_KEYWORDS = {
+    "teleportpart", "spawn", "spawnlocation", "baseplate", "terrain",
+    "kill", "lava", "void", "dead", "fall", "reset", "hazard", "trap", "hurt"
+}
 
-    -- 1. Cek TeleportPart (ditemukan pada decompile dump MapMakingKit)
-    local tpPart = workspace:FindFirstChild("TeleportPart", true)
-    if tpPart and tpPart:IsA("BasePart") then
-        return tpPart, tpPart.CFrame
-    end
-
-    -- 2. Cek nama part standar finish/win
-    local candidates = {"Win", "Winner", "Finish", "End", "Goal", "Reward", "Trophy", "EndPad", "WinPad"}
-    for _, name in ipairs(candidates) do
-        local p = workspace:FindFirstChild(name, true)
-        if p and p:IsA("BasePart") then
-            return p, p.CFrame
-        elseif p and p:IsA("Model") and p.PrimaryPart then
-            return p.PrimaryPart, p.PrimaryPart.CFrame
+local function isIgnoredPart(name)
+    local lower = string.lower(name)
+    for _, ig in ipairs(IGNORE_KEYWORDS) do
+        if string.find(lower, ig) then
+            return true
         end
     end
+    return false
+end
 
-    -- 3. Cek part dengan TouchTransmitter
-    for _, desc in ipairs(workspace:GetDescendants()) do
-        if desc:IsA("TouchTransmitter") and desc.Parent and desc.Parent:IsA("BasePart") then
-            local parentName = string.lower(desc.Parent.Name)
-            if string.find(parentName, "win") or string.find(parentName, "finish") or string.find(parentName, "tp") or string.find(parentName, "end") then
-                return desc.Parent, desc.Parent.CFrame
+-- Deteksi Spawn Asli
+local function getSpawnPosition()
+    if WinSystem.SpawnCFrame then
+        return WinSystem.SpawnCFrame.Position
+    end
+    local spawnObj = workspace:FindFirstChildWhichIsA("SpawnLocation", true)
+    if spawnObj then
+        return spawnObj.Position
+    end
+    return Vector3.new(0, 5, 0)
+end
+
+-- Cari Part Win / Ujung Obby yang Sebenarnya
+local function findWinPart()
+    -- 1. Jika pengguna sudah menyimpan posisi manual, utamakan itu
+    if WinSystem.CustomWinCFrame then
+        WinSystem.LastDetectedName = "Posisi Manual Tersimpan"
+        return nil, WinSystem.CustomWinCFrame, WinSystem.LastDetectedName
+    end
+
+    -- 2. Cek apakah ada Checkpoints / Stages dengan nomor tertinggi
+    local folderNames = {"Checkpoints", "Stages", "Stage", "Spawns", "Obby", "Pads"}
+    for _, fn in ipairs(folderNames) do
+        local folder = workspace:FindFirstChild(fn, true)
+        if folder then
+            local highestNum = -1
+            local highestPart = nil
+            for _, child in ipairs(folder:GetChildren()) do
+                local num = tonumber(string.match(child.Name, "%d+"))
+                if num and num > highestNum then
+                    local p = (child:IsA("BasePart") and child) or child:FindFirstChildWhichIsA("BasePart")
+                    if p and not isIgnoredPart(p.Name) then
+                        highestNum = num
+                        highestPart = p
+                    end
+                end
+            end
+            if highestPart and highestNum > 1 then
+                WinSystem.LastDetectedName = folder.Name .. " [" .. tostring(highestNum) .. "]"
+                return highestPart, highestPart.CFrame + Vector3.new(0, 4, 0), WinSystem.LastDetectedName
             end
         end
     end
 
-    return nil, nil
+    -- 3. Cari part dengan nama Win / Finish (kecuali yang di-blacklist)
+    local winKeywords = {"winpad", "finishpad", "endpad", "winner", "trophy", "finish", "goal", "badge"}
+    for _, kw in ipairs(winKeywords) do
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            if obj:IsA("BasePart") and not isIgnoredPart(obj.Name) then
+                local lower = string.lower(obj.Name)
+                if string.find(lower, kw) and not obj:IsDescendantOf(LocalPlayer.Character or workspace) then
+                    WinSystem.LastDetectedName = obj.Name
+                    return obj, obj.CFrame + Vector3.new(0, 4, 0), WinSystem.LastDetectedName
+                end
+            end
+        end
+    end
+
+    -- 4. Cari Platform Terjauh dari Spawn (Ujung Obby Sebenarnya)
+    local spawnPos = getSpawnPosition()
+    local furthestPart = nil
+    local maxDist = 0
+
+    for _, desc in ipairs(workspace:GetDescendants()) do
+        if desc:IsA("BasePart") and desc.Anchored and not isIgnoredPart(desc.Name) then
+            -- Ukuran platform yang wajar untuk dipijak
+            if desc.Size.X >= 2 and desc.Size.Z >= 2 and desc.Size.Y >= 0.2 then
+                -- Jangan ambil karakter pemain
+                local isPlayerPart = false
+                for _, plr in ipairs(Players:GetPlayers()) do
+                    if plr.Character and desc:IsDescendantOf(plr.Character) then
+                        isPlayerPart = true
+                        break
+                    end
+                end
+
+                if not isPlayerPart then
+                    local dist = (desc.Position - spawnPos).Magnitude
+                    -- Pastikan jaraknya signifikan (> 120 studs dari spawn)
+                    if dist > 120 and dist > maxDist then
+                        maxDist = dist
+                        furthestPart = desc
+                    end
+                end
+            end
+        end
+    end
+
+    if furthestPart then
+        WinSystem.LastDetectedName = string.format("Ujung Obby: %s (%.0f studs)", furthestPart.Name, maxDist)
+        return furthestPart, furthestPart.CFrame + Vector3.new(0, 4, 0), WinSystem.LastDetectedName
+    end
+
+    WinSystem.LastDetectedName = "Tidak Terdeteksi (Gunakan Set Manual)"
+    return nil, nil, WinSystem.LastDetectedName
 end
 
 -- ╔══════════════════════════════╗
@@ -214,9 +292,9 @@ WinTab:CreateButton({
     Name = "Teleport Langsung ke Area Win",
     Callback = function()
         local root = getRootPart()
-        local part, winCf = findWinPart()
+        local part, winCf, name = findWinPart()
         if root and winCf then
-            root.CFrame = winCf + Vector3.new(0, 3, 0)
+            root.CFrame = winCf
             if part and firetouchinterest then
                 pcall(function()
                     firetouchinterest(root, part, 0)
@@ -225,15 +303,15 @@ WinTab:CreateButton({
                 end)
             end
             Window:Notify({
-                Title   = "Teleport Win",
-                Content = "Berhasil berpindah ke area Win!",
-                Duration = 2,
+                Title   = "Teleport Berhasil",
+                Content = "Tiba di: " .. tostring(name),
+                Duration = 3,
             })
         else
             Window:Notify({
-                Title   = "Gagal",
-                Content = "Part Win belum terdeteksi. Silakan gunakan tombol Set Manual.",
-                Duration = 3,
+                Title   = "Part Belum Ditemukan",
+                Content = "Gunakan tombol 'Set Posisi Saat Ini Sebagai Titik Win' saat berada di garis finish.",
+                Duration = 4,
             })
         end
     end,
@@ -244,10 +322,11 @@ WinTab:CreateButton({
     Callback = function()
         local root = getRootPart()
         if root then
-            WinSystem.CustomWinCFrame = root.CFrame
+            WinSystem.CustomWinCFrame = root.CFrame + Vector3.new(0, 1, 0)
+            WinSystem.LastDetectedName = "Titik Manual Pengguna"
             Window:Notify({
-                Title   = "Titik Win Disimpan",
-                Content = string.format("X: %.0f  Y: %.0f  Z: %.0f", root.Position.X, root.Position.Y, root.Position.Z),
+                Title   = "Titik Win Terkunci",
+                Content = string.format("Koordinat: X:%.0f  Y:%.0f  Z:%.0f", root.Position.X, root.Position.Y, root.Position.Z),
                 Duration = 3,
             })
         end
@@ -255,21 +334,22 @@ WinTab:CreateButton({
 })
 
 WinTab:CreateButton({
-    Name = "Scan Otomatis Part Win / TeleportPart",
+    Name = "Scan Ulang Titik Win / Ujung Obby",
     Callback = function()
-        local part, winCf = findWinPart()
-        if part or winCf then
-            local pos = winCf and winCf.Position or Vector3.zero
+        local part, winCf, name = findWinPart()
+        if winCf then
+            local p = winCf.Position
             Window:Notify({
-                Title   = "Part Terdeteksi",
-                Content = "Target: " .. (part and part.Name or "Custom") .. string.format(" (%.0f, %.0f, %.0f)", pos.X, pos.Y, pos.Z),
+                Title   = "Hasil Scan Map",
+                Content = "Target: " .. tostring(name) .. string.format("
+Koordinat: %.0f, %.0f, %.0f", p.X, p.Y, p.Z),
                 Duration = 4,
             })
         else
             Window:Notify({
-                Title   = "Hasil Scan",
-                Content = "Part otomatis belum ditemukan. Coba simpan titik berdiri dengan tombol di atas.",
-                Duration = 3,
+                Title   = "Hasil Scan Map",
+                Content = "Tidak ada part win bernama. Silakan berdiri di finish dan klik 'Set Posisi Saat Ini'.",
+                Duration = 4,
             })
         end
     end,
