@@ -1,30 +1,31 @@
 -- ╔══════════════════════════════════════════════════════════════╗
--- ║         NEMESIS SCRIPT HUB — Blush Canyon (blush.lua)        ║
+-- ║        UNIONSAL SCRIPT HUB — Blush Canyon (blush.lua)        ║
 -- ║        Game  : Blush Canyon (PlaceId: 3218570640)            ║
 -- ║        Module: Auto Win, Blatant Speed, Safe Fall & TP       ║
 -- ║        Design: Glass Bento dark purple (matches main.lua)    ║
 -- ╚══════════════════════════════════════════════════════════════╝
 
+getgenv()._UNIONSAL_CHILD_LOADED = true
 getgenv()._NEMESIS_CHILD_LOADED = true
 
 local SCRIPT_BASE_URL = "https://raw.githubusercontent.com/hendrawansuinto571-glitch/script/main/"
 
 -- Load Nemesis UI Library dari main.lua (Memory / File / GitHub)
-local Nemesis = getgenv().NemesisHub
-if not Nemesis then
+local Unionsal = getgenv().UnionsalHub or getgenv().NemesisHub
+if not Unionsal then
     local okLocal, resLocal = pcall(function()
         return loadstring(readfile("main.lua"))()
     end)
     if okLocal and resLocal then
-        Nemesis = resLocal
+        Unionsal = resLocal
     else
         local okWeb, resWeb = pcall(function()
             return loadstring(game:HttpGet(SCRIPT_BASE_URL .. "main.lua"))()
         end)
         if okWeb and resWeb then
-            Nemesis = resWeb
+            Unionsal = resWeb
         else
-            warn("[Nemesis Hub] Gagal memuat main.lua")
+            warn("[Unionsal Hub] Gagal memuat main.lua")
             return
         end
     end
@@ -50,9 +51,9 @@ end
 -- ═══════════════════════════════════════════
 --  WINDOW UTAMA (NEMESIS GLASS BENTO)
 -- ═══════════════════════════════════════════
-local Window = Nemesis:CreateWindow({
-    Name       = "NEMESIS",
-    Subtitle   = ".gg/nemesishub",
+local Window = Unionsal:CreateWindow({
+    Name       = "unionsal",
+    Subtitle   = ".gg/unionsal",
     GameName   = "Blush Canyon",
     ScriptName = "blush.lua",
     Version    = "v1.3",
@@ -736,30 +737,242 @@ ShopTab:CreateButton({
 -- ║  TAB: PLAYER (MAIN)          ║
 -- ╚══════════════════════════════╝
 local PlayerTab = Window:CreateTab("Player", "user", "Main")
-PlayerTab:CreateSection("Player Profile & Stats")
-PlayerTab:CreateLabel("Username     : @" .. LocalPlayer.Name)
-PlayerTab:CreateLabel("Display Name : " .. LocalPlayer.DisplayName)
-PlayerTab:CreateLabel("User ID      : " .. tostring(LocalPlayer.UserId))
-PlayerTab:CreateLabel("Account Age  : " .. tostring(LocalPlayer.AccountAge) .. " days")
+PlayerTab:CreateSection("Karakter & Fisika")
+
+-- Fly Mode
+local flying = false
+local flySpeed = 50
+local flyBV, flyBG = nil, nil
+local flyConn = nil
+
+local function startFly()
+    local root = getRootPart()
+    local hum = getHumanoid()
+    if not root or not hum then return end
+
+    flyBV = Instance.new("BodyVelocity")
+    flyBV.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+    flyBV.Velocity = Vector3.zero
+    flyBV.Parent = root
+
+    flyBG = Instance.new("BodyGyro")
+    flyBG.MaxTorque = Vector3.new(1e6, 1e6, 1e6)
+    flyBG.P = 10000
+    flyBG.CFrame = root.CFrame
+    flyBG.Parent = root
+
+    flyConn = RunService.RenderStepped:Connect(function()
+        if not flying or not root or not hum then return end
+        local cam = workspace.CurrentCamera
+        flyBG.CFrame = cam.CFrame
+
+        local moveDir = Vector3.zero
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveDir = moveDir + cam.CFrame.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveDir = moveDir - cam.CFrame.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveDir = moveDir - cam.CFrame.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveDir = moveDir + cam.CFrame.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then moveDir = moveDir + Vector3.new(0, 1, 0) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
+            moveDir = moveDir - Vector3.new(0, 1, 0)
+        end
+
+        if moveDir.Magnitude > 0 then
+            flyBV.Velocity = moveDir.Unit * flySpeed
+        else
+            flyBV.Velocity = Vector3.zero
+        end
+    end)
+end
+
+local function stopFly()
+    if flyConn then flyConn:Disconnect(); flyConn = nil end
+    if flyBV then flyBV:Destroy(); flyBV = nil end
+    if flyBG then flyBG:Destroy(); flyBG = nil end
+end
+
+PlayerTab:CreateToggle({
+    Name = "Fly Mode (Terbang WASD)",
+    CurrentValue = false,
+    Callback = function(v)
+        flying = v
+        if v then startFly() else stopFly() end
+        Window:Notify({ Title = "Fly", Content = v and "Fly Mode Aktif (WASD + Space/Shift)" or "Fly Mode Nonaktif", Duration = 2 })
+    end
+})
+
+PlayerTab:CreateSlider({
+    Name = "Fly Speed",
+    Range = {10, 250},
+    Increment = 5,
+    Suffix = " spd",
+    CurrentValue = 50,
+    Callback = function(v) flySpeed = v end
+})
+
+-- NoClip
+local noclip = false
+local noclipConn = nil
+PlayerTab:CreateToggle({
+    Name = "NoClip (Tembus Dinding)",
+    CurrentValue = false,
+    Callback = function(v)
+        noclip = v
+        if v and not noclipConn then
+            noclipConn = RunService.Stepped:Connect(function()
+                if not noclip then return end
+                local char = getCharacter()
+                if char then
+                    for _, p in ipairs(char:GetDescendants()) do
+                        if p:IsA("BasePart") and p.CanCollide then
+                            p.CanCollide = false
+                        end
+                    end
+                end
+            end)
+        elseif not v and noclipConn then
+            noclipConn:Disconnect()
+            noclipConn = nil
+        end
+        Window:Notify({ Title = "NoClip", Content = v and "NoClip Aktif!" or "NoClip Nonaktif", Duration = 2 })
+    end
+})
+
+-- SpinBot
+local spinbot = false
+local spinSpeed = 30
+local spinConn = nil
+PlayerTab:CreateToggle({
+    Name = "SpinBot (Putar Cepat)",
+    CurrentValue = false,
+    Callback = function(v)
+        spinbot = v
+        if v and not spinConn then
+            spinConn = RunService.RenderStepped:Connect(function()
+                if not spinbot then return end
+                local root = getRootPart()
+                if root then
+                    root.CFrame = root.CFrame * CFrame.Angles(0, math.rad(spinSpeed), 0)
+                end
+            end)
+        elseif not v and spinConn then
+            spinConn:Disconnect(); spinConn = nil
+        end
+    end
+})
+
+PlayerTab:CreateSlider({
+    Name = "SpinBot Speed",
+    Range = {5, 100},
+    Increment = 5,
+    Suffix = " rpm",
+    CurrentValue = 30,
+    Callback = function(v) spinSpeed = v end
+})
+
+PlayerTab:CreateSection("Visual & Kamera")
+
+-- Fullbright
+local fullbright = false
+local Lighting = game:GetService("Lighting")
+local oldAmbient = Lighting.Ambient
+local oldBrightness = Lighting.Brightness
+local oldClock = Lighting.ClockTime
+PlayerTab:CreateToggle({
+    Name = "Fullbright (Terang Benderang / Anti Gelap)",
+    CurrentValue = false,
+    Callback = function(v)
+        fullbright = v
+        if v then
+            Lighting.Ambient = Color3.fromRGB(255, 255, 255)
+            Lighting.Brightness = 2
+            Lighting.ClockTime = 14
+        else
+            Lighting.Ambient = oldAmbient
+            Lighting.Brightness = oldBrightness
+            Lighting.ClockTime = oldClock
+        end
+        Window:Notify({ Title = "Visual", Content = v and "Fullbright Aktif!" or "Fullbright Nonaktif", Duration = 2 })
+    end
+})
+
+-- FOV Slider
+PlayerTab:CreateSlider({
+    Name = "Field of View (FOV)",
+    Range = {70, 120},
+    Increment = 1,
+    Suffix = "°",
+    CurrentValue = 70,
+    Callback = function(v)
+        workspace.CurrentCamera.FieldOfView = v
+    end
+})
+
+PlayerTab:CreateSection("Utilitas Player")
+
+-- Anti-AFK
+local antiAfk = false
+local afkConn = nil
+PlayerTab:CreateToggle({
+    Name = "Anti-AFK (Cegah Disconnect 20 Menit)",
+    CurrentValue = true,
+    Callback = function(v)
+        antiAfk = v
+        if v and not afkConn then
+            local vu = game:GetService("VirtualUser")
+            afkConn = LocalPlayer.Idled:Connect(function()
+                if antiAfk then
+                    vu:CaptureController()
+                    vu:ClickButton2(Vector2.zero)
+                end
+            end)
+        elseif not v and afkConn then
+            afkConn:Disconnect(); afkConn = nil
+        end
+    end
+})
 
 PlayerTab:CreateButton({
-    Name = "Reset Character / Respawn",
+    Name = "Salin Koordinat Posisi Saat Ini",
     Callback = function()
-        local hum = getHumanoid()
-        if hum then hum.Health = 0 end
-    end,
+        local r = getRootPart()
+        if r then
+            local posStr = string.format("%.1f, %.1f, %.1f", r.Position.X, r.Position.Y, r.Position.Z)
+            if setclipboard then setclipboard(posStr) end
+            Window:Notify({ Title = "Posisi", Content = "Koordinat disalin: " .. posStr, Duration = 3 })
+        end
+    end
+})
+
+PlayerTab:CreateButton({
+    Name = "Reset Karakter / Respawn",
+    Callback = function() local h = getHumanoid(); if h then h.Health = 0 end end
 })
 
 -- ╔══════════════════════════════╗
 -- ║  TAB: SETTINGS (CONFIG)      ║
 -- ╚══════════════════════════════╝
 local SettingsTab = Window:CreateTab("Settings", "settings", "Config")
-SettingsTab:CreateSection("Client Configurations")
-SettingsTab:CreateToggle({
-    Name = "Auto Rejoin on Disconnect",
-    CurrentValue = true,
-    Callback = function(v) end,
+
+SettingsTab:CreateSection("Keybinds & Shortcut Menu")
+SettingsTab:CreateKeybind({
+    Name = "Tombol Buka / Tutup UI",
+    CurrentKey = Window.ToggleKey or Enum.KeyCode.RightShift,
+    Callback = function(newKey)
+        Window.ToggleKey = newKey
+        Window:Notify({ Title = "Keybind Disimpan", Content = "Tombol menu diubah ke: [" .. newKey.Name .. "]", Duration = 3 })
+    end
 })
+
+SettingsTab:CreateParagraph({
+    Title = "Daftar Shortcut & Panduan Penggunaan",
+    Content = "• Buka/Tutup UI: Tekan tombol yang telah diatur di atas (Default: RightShift).\n" ..
+              "• Pop-up Kotak Mini: Muncul di kiri saat tombol strip [ — ] ditekan.\n" ..
+              "• Geser Window: Drag header atas UI menggunakan mouse.\n" ..
+              "• Resize Window: Tarik grip pojok kanan bawah seperti aplikasi Windows.\n" ..
+              "• Ganti Tema: Klik ikon matahari di kanan atas untuk White/Dark mode."
+})
+
+SettingsTab:CreateSection("Optimasi Client")
 SettingsTab:CreateToggle({
     Name = "Reduce Graphics Lag (FPS Boost)",
     CurrentValue = false,
@@ -769,25 +982,128 @@ SettingsTab:CreateToggle({
                 settings().Rendering.QualityLevel = 1
             end)
         end
-    end,
+        Window:Notify({ Title = "Graphics", Content = v and "FPS Boost diaktifkan!" or "FPS Boost dinonaktifkan.", Duration = 2 })
+    end
 })
 
 -- ╔══════════════════════════════╗
 -- ║  TAB: CONFIGS (CONFIG)       ║
 -- ╚══════════════════════════════╝
 local ConfigsTab = Window:CreateTab("Configs", "folder", "Config")
-ConfigsTab:CreateSection("Save & Load Profiles")
-ConfigsTab:CreateButton({
-    Name = "Save Current Config",
-    Callback = function()
-        Window:Notify({ Title = "Config", Content = "Konfigurasi berhasil disimpan.", Duration = 2 })
-    end,
+ConfigsTab:CreateSection("Discord Webhook Integration")
+
+local webhookUrl = ""
+local sendOnExec = true
+local sendOnWin = true
+
+ConfigsTab:CreateInput({
+    Name = "Discord Webhook URL",
+    PlaceholderText = "https://discord.com/api/webhooks/...",
+    Callback = function(val)
+        webhookUrl = string.gsub(val or "", "^%s*(.-)%s*$", "%1")
+        Window:Notify({ Title = "Webhook", Content = "URL Webhook disimpan.", Duration = 2 })
+    end
 })
+
+ConfigsTab:CreateToggle({
+    Name = "Kirim Log saat Script Dieksekusi",
+    CurrentValue = true,
+    Callback = function(v) sendOnExec = v end
+})
+
+ConfigsTab:CreateToggle({
+    Name = "Kirim Log saat Auto Win Berhasil",
+    CurrentValue = true,
+    Callback = function(v) sendOnWin = v end
+})
+
+local function sendDiscordWebhook(embedData)
+    if webhookUrl == "" or not string.find(webhookUrl, "discord%.com/api/webhooks") then
+        Window:Notify({ Title = "Webhook Error", Content = "URL Webhook tidak valid! Masukkan URL Discord yang benar.", Duration = 3 })
+        return false
+    end
+    local http = syn and syn.request or http_request or request or (http and http.request)
+    if not http then
+        Window:Notify({ Title = "Webhook Error", Content = "Executor kamu tidak mendukung HTTP request.", Duration = 3 })
+        return false
+    end
+    local payload = game:GetService("HttpService"):JSONEncode({
+        username = "Unionsal Hub Logger",
+        avatar_url = "https://i.imgur.com/8Q9Z5bX.png",
+        embeds = { embedData }
+    })
+    local ok = pcall(function()
+        http({
+            Url = webhookUrl,
+            Method = "POST",
+            Headers = { ["Content-Type"] = "application/json" },
+            Body = payload
+        })
+    end)
+    return ok
+end
+
 ConfigsTab:CreateButton({
-    Name = "Load Default Config",
+    Name = "Kirim Pesan Uji Coba (Test Webhook)",
     Callback = function()
-        Window:Notify({ Title = "Config", Content = "Konfigurasi default dipulihkan.", Duration = 2 })
-    end,
+        local embed = {
+            title = "⚡ Unionsal Hub v1.3 • Webhook Connected",
+            description = "Webhook berhasil terhubung dengan client Roblox!",
+            color = 8864235,
+            fields = {
+                { name = "Player", value = LocalPlayer.Name .. " (@" .. LocalPlayer.DisplayName .. ")", inline = true },
+                { name = "Game", value = "Blush Canyon", inline = true },
+                { name = "Place ID", value = tostring(game.PlaceId), inline = true },
+                { name = "Waktu", value = os.date("%H:%M:%S - %d/%m/%Y"), inline = false }
+            },
+            footer = { text = "Unionsal Script Hub • .gg/unionsal" }
+        }
+        local success = sendDiscordWebhook(embed)
+        if success then
+            Window:Notify({ Title = "Webhook Sukses", Content = "Pesan uji coba berhasil terkirim ke Discord!", Duration = 3 })
+        end
+    end
+})
+
+ConfigsTab:CreateSection("Penyimpanan Profil Konfigurasi")
+ConfigsTab:CreateButton({
+    Name = "Simpan Konfigurasi (Save Config)",
+    Callback = function()
+        pcall(function()
+            if writefile then
+                local cfgData = {
+                    WebhookUrl = webhookUrl,
+                    SendOnExec = sendOnExec,
+                    SendOnWin = sendOnWin,
+                    ToggleKey = Window.ToggleKey and Window.ToggleKey.Name or "RightShift"
+                }
+                writefile("unionsal_blush_config.json", game:GetService("HttpService"):JSONEncode(cfgData))
+            end
+        end)
+        Window:Notify({ Title = "Config", Content = "Konfigurasi berhasil disimpan ke file.", Duration = 2 })
+    end
+})
+
+ConfigsTab:CreateButton({
+    Name = "Muat Konfigurasi (Load Config)",
+    Callback = function()
+        local loaded = false
+        pcall(function()
+            if readfile and isfile and isfile("unionsal_blush_config.json") then
+                local data = game:GetService("HttpService"):JSONDecode(readfile("unionsal_blush_config.json"))
+                if data.WebhookUrl then webhookUrl = data.WebhookUrl end
+                if data.ToggleKey and Enum.KeyCode[data.ToggleKey] then
+                    Window.ToggleKey = Enum.KeyCode[data.ToggleKey]
+                end
+                loaded = true
+            end
+        end)
+        Window:Notify({
+            Title = "Config",
+            Content = loaded and "Konfigurasi berhasil dimuat." or "File konfigurasi belum ada.",
+            Duration = 2
+        })
+    end
 })
 
 -- ╔══════════════════════════════╗
@@ -795,7 +1111,7 @@ ConfigsTab:CreateButton({
 -- ╚══════════════════════════════╝
 task.wait(0.5)
 Window:Notify({
-    Title   = "Nemesis Hub",
+    Title   = "unionsal",
     Content = "Blush Canyon v1.3 aktif! Auto Win & Anti-Fall Damage siap digunakan.",
     Duration = 5,
 })
