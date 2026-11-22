@@ -3859,17 +3859,48 @@ local RagdollGame = {
     SavedFanCFrame     = nil,
 }
 
--- Cari semua dummy hidup di map (yang bukan player)
+-- Cari semua dummy di map (baik hidup maupun pingsan/mati)
+local function getAllDummies()
+    local list = {}
+    local folders = {"Dummies", "Ragdolls", "Crowd", "NPCs", "Bodies", "Zombies"}
+    for _, fn in ipairs(folders) do
+        local f = workspace:FindFirstChild(fn)
+        if f then
+            for _, obj in ipairs(f:GetChildren()) do
+                if obj:IsA("Model") and obj ~= LocalPlayer.Character and not Players:GetPlayerFromCharacter(obj) then
+                    table.insert(list, obj)
+                end
+            end
+        end
+    end
+    if #list == 0 then
+        for _, obj in ipairs(workspace:GetChildren()) do
+            if obj:IsA("Model") and obj ~= LocalPlayer.Character and not Players:GetPlayerFromCharacter(obj) then
+                local hasLimb = obj:FindFirstChild("Head") or obj:FindFirstChild("Torso") or obj:FindFirstChild("UpperTorso") or obj:FindFirstChild("HumanoidRootPart")
+                if hasLimb then
+                    table.insert(list, obj)
+                end
+            end
+        end
+    end
+    return list
+end
+
+-- Cari dummy yang masih hidup / belum hancur
 local function getLivingDummies()
     local list = {}
-    local pool = workspace:GetDescendants()
-    for _, obj in ipairs(pool) do
-        if obj:IsA("Model") and obj ~= LocalPlayer.Character and not Players:GetPlayerFromCharacter(obj) then
-            local hum = obj:FindFirstChildOfClass("Humanoid")
-            local root = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChild("Torso") or obj:FindFirstChild("UpperTorso")
-            if hum and root and hum.Health > 0 then
-                table.insert(list, obj)
+    for _, dummy in ipairs(getAllDummies()) do
+        local hum = dummy:FindFirstChildOfClass("Humanoid")
+        local root = dummy:FindFirstChild("HumanoidRootPart") or dummy:FindFirstChild("Torso") or dummy:FindFirstChild("UpperTorso")
+        local hasJoints = false
+        for _, j in ipairs(dummy:GetDescendants()) do
+            if j:IsA("Motor6D") or j:IsA("BallSocketConstraint") then
+                hasJoints = true
+                break
             end
+        end
+        if (hum and hum.Health > 0) or (root and hasJoints) then
+            table.insert(list, dummy)
         end
     end
     return list
@@ -3925,6 +3956,255 @@ local function swingOrShootTool()
             tool:Activate()
         end)
     end
+end
+
+-- Eksekusi pembunuhan instan pada dummy (Lethal Decapitation & Severing)
+local function killDummyInstantly(dummy)
+    if not dummy or not dummy.Parent then return end
+
+    local dHum = dummy:FindFirstChildOfClass("Humanoid")
+    local dRoot = dummy:FindFirstChild("HumanoidRootPart") or dummy:FindFirstChild("Torso") or dummy:FindFirstChild("UpperTorso")
+
+    -- 1. Matikan Humanoid seketika
+    if dHum then
+        pcall(function()
+            dHum.Health = 0
+            dHum:ChangeState(Enum.HumanoidStateType.Dead)
+        end)
+    end
+
+    -- 2. Hancurkan sendi leher, kepala & torso (Decapitation / Instant Lethal)
+    pcall(function()
+        dummy:BreakJoints()
+    end)
+    for _, j in ipairs(dummy:GetDescendants()) do
+        if j:IsA("JointInstance") or j:IsA("Constraint") then
+            pcall(function()
+                local n = string.lower(j.Name)
+                if string.find(n, "neck") or string.find(n, "head") or string.find(n, "waist") or string.find(n, "root") then
+                    j:Destroy()
+                end
+            end)
+        end
+    end
+
+    -- 3. Ayunkan senjata dengan TouchInterest langsung ke kepala & torso dummy
+    local char = getCharacter()
+    if char then
+        local tool = char:FindFirstChildOfClass("Tool") or LocalPlayer.Backpack:FindFirstChildOfClass("Tool")
+        if tool then
+            if tool.Parent ~= char and getHumanoid() then
+                getHumanoid():EquipTool(tool)
+            end
+            local handle = tool:FindFirstChild("Handle") or tool:FindFirstChildWhichIsA("BasePart")
+            if handle and firetouchinterest then
+                for _, part in ipairs(dummy:GetChildren()) do
+                    if part:IsA("BasePart") then
+                        firetouchinterest(handle, part, 0)
+                        firetouchinterest(handle, part, 1)
+                    end
+                end
+            end
+            pcall(function() tool:Activate() end)
+        end
+    end
+
+    -- 4. Berikan benturan fisika mematikan ke bawah tanah / void
+    for _, part in ipairs(dummy:GetChildren()) do
+        if part:IsA("BasePart") and not part.Anchored then
+            pcall(function()
+                part.AssemblyLinearVelocity = Vector3.new(0, -500, 0)
+            end)
+        end
+    end
+
+    -- 5. Panggil modul internal game jika tersedia (Client.Dummies.DummyBody / PlayerHurt)
+    pcall(function()
+        local client = LocalPlayer.PlayerScripts:FindFirstChild("Client")
+        if client then
+            local dummiesFolder = client:FindFirstChild("Dummies")
+            if dummiesFolder then
+                local db = dummiesFolder:FindFirstChild("DummyBody")
+                if db then
+                    local req = require(db)
+                    if req and req.damage then req.damage(dummy, 999999) end
+                    if req and req.kill then req.kill(dummy) end
+                end
+            end
+            local handsFolder = client:FindFirstChild("Hands")
+            if handsFolder then
+                local ph = handsFolder:FindFirstChild("PlayerHurt")
+                if ph then
+                    local req = require(ph)
+                    if req and req.hurt then req.hurt(dummy, 999999) end
+                    if req and req.damage then req.damage(dummy, 999999) end
+                end
+            end
+        end
+    end)
+end
+
+-- Hancurkan seluruh tubuh semua ragdoll menjadi potongan-potongan terpisah
+local function shatterAndDismemberAllDummies()
+    local count = 0
+    local dummies = getAllDummies()
+    for _, dummy in ipairs(dummies) do
+        pcall(function()
+            local dHum = dummy:FindFirstChildOfClass("Humanoid")
+            if dHum then
+                dHum.Health = 0
+                dHum:ChangeState(Enum.HumanoidStateType.Dead)
+            end
+            dummy:BreakJoints()
+            -- Hancurkan SEMUA Motor6D, Weld, Glue, BallSocketConstraint agar tubuh tercerai-berai
+            for _, desc in ipairs(dummy:GetDescendants()) do
+                if desc:IsA("JointInstance") or desc:IsA("Constraint") then
+                    desc:Destroy()
+                end
+            end
+            -- Beri gaya dorong eksplosif ke setiap potongan tubuh
+            for _, part in ipairs(dummy:GetChildren()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = true
+                    part.AssemblyLinearVelocity = Vector3.new(
+                        math.random(-60, 60),
+                        math.random(30, 90),
+                        math.random(-60, 60)
+                    )
+                    part.AssemblyAngularVelocity = Vector3.new(
+                        math.random(-25, 25),
+                        math.random(-25, 25),
+                        math.random(-25, 25)
+                    )
+                end
+            end
+            count = count + 1
+        end)
+    end
+    return count
+end
+
+-- Memicu sistem Revive bawaan game
+local function triggerGameRevive()
+    local done = false
+    -- 1. Scan semua tombol di PlayerGui
+    pcall(function()
+        for _, gui in ipairs(LocalPlayer.PlayerGui:GetDescendants()) do
+            if gui:IsA("TextButton") or gui:IsA("ImageButton") then
+                local txt = (gui:IsA("TextButton") and string.lower(gui.Text)) or ""
+                local nm = string.lower(gui.Name)
+                if string.find(txt, "revive") or string.find(nm, "revive") or string.find(txt, "respawn") or string.find(nm, "respawn") then
+                    if firesignal then
+                        firesignal(gui.MouseButton1Click)
+                        firesignal(gui.Activated)
+                    end
+                    done = true
+                end
+            end
+        end
+    end)
+    -- 2. Scan RemoteEvent / RemoteFunction di ReplicatedStorage & game
+    pcall(function()
+        for _, obj in ipairs(game:GetDescendants()) do
+            if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
+                local n = string.lower(obj.Name)
+                if string.find(n, "revive") or string.find(n, "respawn") or string.find(n, "resetdummies") or string.find(n, "cleargraves") then
+                    if obj:IsA("RemoteEvent") then
+                        obj:FireServer()
+                        done = true
+                    elseif obj:IsA("RemoteFunction") then
+                        obj:InvokeServer()
+                        done = true
+                    end
+                end
+            end
+        end
+    end)
+    -- 3. Coba panggil Client Modules (Dummies.DummyManager / MapClient / EventRunner)
+    pcall(function()
+        local client = LocalPlayer.PlayerScripts:FindFirstChild("Client")
+        if client then
+            local dummiesFolder = client:FindFirstChild("Dummies")
+            if dummiesFolder then
+                local dm = dummiesFolder:FindFirstChild("DummyManager")
+                if dm then
+                    local req = require(dm)
+                    if req then
+                        if req.revive then req.revive(); done = true end
+                        if req.respawn then req.respawn(); done = true end
+                        if req.reset then req.reset(); done = true end
+                        if req.spawnAll then req.spawnAll(); done = true end
+                        if req.respawnAll then req.respawnAll(); done = true end
+                    end
+                end
+            end
+        end
+    end)
+    return done
+end
+
+-- Bangkitkan kembali dummy mati menggunakan Defibrillator secara massal
+local function massDefibrillatorRevive()
+    local hum = getHumanoid()
+    local myRoot = getRootPart()
+    if not hum or not myRoot then return 0 end
+
+    local defib = (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Defibrillator")) or LocalPlayer.Backpack:FindFirstChild("Defibrillator")
+    if not defib then
+        for _, tool in ipairs(getDroppedTools()) do
+            if string.find(string.lower(tool.Name), "defibrillator") then
+                local handle = tool:FindFirstChild("Handle") or tool:FindFirstChildWhichIsA("BasePart")
+                if handle then handle.CFrame = myRoot.CFrame end
+                task.wait(0.1)
+                defib = LocalPlayer.Backpack:FindFirstChild("Defibrillator")
+                break
+            end
+        end
+    end
+
+    if defib then
+        hum:EquipTool(defib)
+        task.wait(0.05)
+    end
+
+    local count = 0
+    for _, dummy in ipairs(getAllDummies()) do
+        local dRoot = dummy:FindFirstChild("HumanoidRootPart") or dummy:FindFirstChild("Torso") or dummy:FindFirstChild("UpperTorso")
+        local dHum = dummy:FindFirstChildOfClass("Humanoid")
+        if dRoot and (not dHum or dHum.Health <= 0) then
+            pcall(function()
+                if defib then
+                    local handle = defib:FindFirstChild("Handle") or defib:FindFirstChildWhichIsA("BasePart")
+                    if handle and firetouchinterest then
+                        firetouchinterest(handle, dRoot, 0)
+                        firetouchinterest(handle, dRoot, 1)
+                    end
+                    defib:Activate()
+                end
+                if dHum then
+                    dHum.Health = 100
+                    dHum:ChangeState(Enum.HumanoidStateType.GettingUp)
+                end
+                count = count + 1
+            end)
+        end
+    end
+    return count
+end
+
+-- Membersihkan kuburan dummy dan senjata tercecer di map
+local function clearGravesAndGuns()
+    local count = 0
+    for _, obj in ipairs(workspace:GetChildren()) do
+        local n = string.lower(obj.Name)
+        if obj:IsA("Tool") or string.find(n, "grave") or string.find(n, "tomb") or string.find(n, "corpse") or string.find(n, "blood") then
+            pcall(function()
+                obj:Destroy()
+                count = count + 1
+            end)
+        end
+    end
+    return count
 end
 
 -- ═══════════════════════════════════════════
@@ -4143,15 +4423,15 @@ end
 -- ║  TAB 1: DUMMIES & KO (AUTO FARM)          ║
 -- ╚═══════════════════════════════════════════╝
 local FarmTab = Window:CreateTab("Auto Farm", "sprout", "Main")
-FarmTab:CreateSection("Auto Kill & KO Annihilation")
+FarmTab:CreateSection("Auto Kill (Teleport & Instant Kill)")
 
 ToggleObjects.AutoKill = FarmTab:CreateToggle({
-    Name = "Kill All Dummies (Loop Otomatis)",
+    Name = "Auto Kill Ragdoll (Teleport & Langsung Mati)",
     CurrentValue = false,
     Callback = function(v)
         RagdollGame.AutoKillRunning = v
         notifyStateChange("AutoKill", v)
-        Window:Notify({ Title = "Kill All Dummies", Content = v and "Pembantaian dimulai! Memburu semua dummy..." or "Kill All dihentikan.", Duration = 2 })
+        Window:Notify({ Title = "Auto Kill", Content = v and "Auto Kill AKTIF! Karakter TP dan ragdoll langsung mati seketika." or "Auto Kill nonaktif.", Duration = 2 })
 
         if v then
             task.spawn(function()
@@ -4161,27 +4441,26 @@ ToggleObjects.AutoKill = FarmTab:CreateToggle({
                         for _, dummy in ipairs(dummies) do
                             if not RagdollGame.AutoKillRunning then break end
                             local root = getRootPart()
-                            local dRoot = dummy:FindFirstChild("HumanoidRootPart") or dummy:FindFirstChild("Torso") or dummy:FindFirstChild("UpperTorso")
-                            local dHum = dummy:FindFirstChildOfClass("Humanoid")
+                            local dRoot = dummy:FindFirstChild("HumanoidRootPart") or dummy:FindFirstChild("Torso") or dummy:FindFirstChild("UpperTorso") or dummy:FindFirstChild("Head")
 
-                            if root and dRoot and dHum and dHum.Health > 0 then
-                                -- Teleport tepat di belakang dummy
-                                root.CFrame = dRoot.CFrame * CFrame.new(0, 0, 3)
-                                task.wait(0.04)
+                            if root and dRoot and dummy.Parent then
+                                -- 1. Teleport langsung ke posisi ragdoll
+                                root.CFrame = dRoot.CFrame * CFrame.new(0, 1, 2)
+                                task.wait(0.03)
 
-                                -- Serang dummy berulang kali sampai KO
-                                local attackCount = 0
-                                while dHum and dHum.Health > 0 and attackCount < 10 and RagdollGame.AutoKillRunning do
-                                    attackCount = attackCount + 1
-                                    swingOrShootTool()
-                                    task.wait(0.06)
+                                -- 2. Eksekusi INSTANT KILL langsung seketika!
+                                killDummyInstantly(dummy)
+
+                                -- 3. Notifikasi Webhook jika aktif
+                                if ConfigRegistry.SendOnKo and ConfigRegistry.WebhookUrl ~= "" then
+                                    sendDiscordWebhook("💀 Ragdoll Eliminated: " .. dummy.Name, 0xFF3333)
                                 end
 
                                 task.wait(RagdollGame.KillDelay)
                             end
                         end
                     else
-                        task.wait(1)
+                        task.wait(0.5)
                     end
                 end
             end)
@@ -4190,14 +4469,95 @@ ToggleObjects.AutoKill = FarmTab:CreateToggle({
 })
 
 SliderObjects.KillDelay = FarmTab:CreateSlider({
-    Name = "Jeda Antar Target Dummy",
+    Name = "Jeda Antar Target Ragdoll",
     Range = {0.05, 1.5},
     Increment = 0.05,
     Suffix = " detik",
-    CurrentValue = 0.2,
+    CurrentValue = 0.15,
     Callback = function(v)
         RagdollGame.KillDelay = v
         notifyStateChange("KillDelay", v)
+    end
+})
+
+FarmTab:CreateSection("Shatter & Kill All (Hancurkan Seluruh Tubuh)")
+
+FarmTab:CreateButton({
+    Name = "Kill All Ragdoll (Hancurkan Seluruh Tubuh Seketika)",
+    Callback = function()
+        local count = shatterAndDismemberAllDummies()
+        Window:Notify({ Title = "Shatter Kill All", Content = count .. " ragdoll berhasil dibunuh & tubuhnya hancur berkeping-keping!", Duration = 3.5 })
+    end
+})
+
+local loopShatterRunning = false
+FarmTab:CreateToggle({
+    Name = "Loop Shatter All (Hancurkan Semua Terus Menerus)",
+    CurrentValue = false,
+    Callback = function(v)
+        loopShatterRunning = v
+        Window:Notify({ Title = "Loop Shatter", Content = v and "Loop Shatter AKTIF! Semua ragdoll yang muncul akan langsung hancur." or "Loop Shatter nonaktif.", Duration = 2 })
+        if v then
+            task.spawn(function()
+                while loopShatterRunning do
+                    shatterAndDismemberAllDummies()
+                    task.wait(0.3)
+                end
+            end)
+        end
+    end
+})
+
+FarmTab:CreateButton({
+    Name = "Fling All Ragdoll (Lontarkan Semua ke Langit)",
+    Callback = function()
+        local count = 0
+        for _, dummy in ipairs(getAllDummies()) do
+            local dRoot = dummy:FindFirstChild("HumanoidRootPart") or dummy:FindFirstChild("Torso")
+            if dRoot and not dRoot.Anchored then
+                dRoot.AssemblyLinearVelocity = Vector3.new(math.random(-60, 60), 350, math.random(-60, 60))
+                dRoot.AssemblyAngularVelocity = Vector3.new(math.random(-80, 80), math.random(-80, 80), math.random(-80, 80))
+                count = count + 1
+            end
+        end
+        Window:Notify({ Title = "Fling Ragdoll", Content = count .. " ragdoll dilontarkan ke langit!", Duration = 3 })
+    end
+})
+
+FarmTab:CreateSection("Revive & Respawn Sistem")
+
+FarmTab:CreateButton({
+    Name = "Revive All Ragdoll (Bangkitkan Seluruh Ragdoll - Fitur Game)",
+    Callback = function()
+        local ok = triggerGameRevive()
+        Window:Notify({ Title = "Revive All", Content = ok and "Sinyal Revive game berhasil dikirim! Seluruh ragdoll dibangkitkan utuh." or "Memicu revive modul...", Duration = 3 })
+    end
+})
+
+FarmTab:CreateButton({
+    Name = "Defibrillator Mass Revive (Kejut Jantung Semua Ragdoll)",
+    Callback = function()
+        local count = massDefibrillatorRevive()
+        Window:Notify({ Title = "Defibrillator Revive", Content = count .. " ragdoll berhasil diselamatkan/di-revive dengan Defibrillator!", Duration = 3 })
+    end
+})
+
+FarmTab:CreateButton({
+    Name = "Respawn Karakter (Instan)",
+    Callback = function()
+        local hum = getHumanoid()
+        if hum then
+            hum.Health = 0
+            Window:Notify({ Title = "Respawn", Content = "Karakter di-respawn!", Duration = 1.5 })
+        end
+    end
+})
+
+FarmTab:CreateButton({
+    Name = "Clear Graves & Dropped Guns (Bersihkan Map)",
+    Callback = function()
+        local count = clearGravesAndGuns()
+        Window:Notify({ Title = "Clear Map", Content = count .. " kuburan/senjata di lantai dibersihkan!", Duration = 3 })
     end
 })
 
@@ -4209,7 +4569,7 @@ FarmTab:CreateButton({
         local myRoot = getRootPart()
         if not myRoot then return end
         local count = 0
-        for _, dummy in ipairs(getLivingDummies()) do
+        for _, dummy in ipairs(getAllDummies()) do
             local dRoot = dummy:FindFirstChild("HumanoidRootPart") or dummy:FindFirstChild("Torso")
             if dRoot and not dRoot.Anchored then
                 dRoot.CFrame = myRoot.CFrame * CFrame.new(0, 0, -4)
@@ -4225,7 +4585,7 @@ FarmTab:CreateButton({
     Callback = function()
         local fanCf = findBigFan()
         local count = 0
-        for _, dummy in ipairs(getLivingDummies()) do
+        for _, dummy in ipairs(getAllDummies()) do
             local dRoot = dummy:FindFirstChild("HumanoidRootPart") or dummy:FindFirstChild("Torso")
             if dRoot and not dRoot.Anchored then
                 dRoot.CFrame = fanCf
@@ -4240,7 +4600,7 @@ FarmTab:CreateButton({
     Name = "Freeze All Dummies (Lumpuhkan AI Bergerak)",
     Callback = function()
         local count = 0
-        for _, dummy in ipairs(getLivingDummies()) do
+        for _, dummy in ipairs(getAllDummies()) do
             for _, p in ipairs(dummy:GetDescendants()) do
                 if p:IsA("BasePart") then
                     p.Anchored = true
@@ -4255,7 +4615,7 @@ FarmTab:CreateButton({
 FarmTab:CreateButton({
     Name = "Unfreeze All Dummies (Pulihkan AI)",
     Callback = function()
-        for _, dummy in ipairs(getLivingDummies()) do
+        for _, dummy in ipairs(getAllDummies()) do
             for _, p in ipairs(dummy:GetDescendants()) do
                 if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" then
                     p.Anchored = false
@@ -4263,22 +4623,6 @@ FarmTab:CreateButton({
             end
         end
         Window:Notify({ Title = "Unfreeze", Content = "AI dummy dipulihkan normal.", Duration = 2 })
-    end
-})
-
-FarmTab:CreateButton({
-    Name = "Fling All Dummies (Lontarkan ke Langit)",
-    Callback = function()
-        local count = 0
-        for _, dummy in ipairs(getLivingDummies()) do
-            local dRoot = dummy:FindFirstChild("HumanoidRootPart") or dummy:FindFirstChild("Torso")
-            if dRoot and not dRoot.Anchored then
-                dRoot.Velocity = Vector3.new(math.random(-50, 50), 300, math.random(-50, 50))
-                dRoot.RotVelocity = Vector3.new(math.random(-100, 100), math.random(-100, 100), math.random(-100, 100))
-                count = count + 1
-            end
-        end
-        Window:Notify({ Title = "Fling Dummies", Content = count .. " dummy dilontarkan ke langit!", Duration = 3 })
     end
 })
 
