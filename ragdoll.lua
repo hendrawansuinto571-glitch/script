@@ -425,6 +425,462 @@ local function clearGravesAndGuns()
     return count
 end
 
+# scratch/test_events_code.py
+import re
+
+print("Testing Events tab generator...")
+
+events_code = '''
+-- ═══════════════════════════════════════════
+--  SISTEM BENCANA & GAME EVENTS (ALL 9 EVENTS)
+-- ═══════════════════════════════════════════
+local GameEvents = {
+    WeightlessActive    = false,
+    DeepFreezeActive    = false,
+    FallingDummiesLoop  = false,
+    WildfireActive      = false,
+    MeteorRainLoop      = false,
+    TornadoActive       = false,
+    BlackHoleActive     = false,
+    OriginalGravity     = workspace.Gravity,
+}
+
+-- Memicu Event Game secara Native (Bypass UI & EventRunner)
+local function triggerNativeGameEvent(eventName)
+    local triggered = false
+    local norm = string.lower(string.gsub(eventName, "%s+", ""))
+
+    -- 1. Scan PlayerGui untuk tombol event yang sesuai gambar
+    pcall(function()
+        for _, gui in ipairs(LocalPlayer.PlayerGui:GetDescendants()) do
+            if gui:IsA("TextButton") or gui:IsA("ImageButton") then
+                local txt = (gui:IsA("TextButton") and string.lower(gui.Text)) or ""
+                local nm = string.lower(gui.Name)
+                local pnm = (gui.Parent and string.lower(gui.Parent.Name)) or ""
+                if string.find(txt, norm) or string.find(nm, norm) or string.find(pnm, norm) then
+                    if firesignal then
+                        firesignal(gui.MouseButton1Click)
+                        firesignal(gui.Activated)
+                    end
+                    triggered = true
+                end
+            end
+        end
+    end)
+
+    -- 2. Panggil Client.Events.EventRunner jika tersedia
+    pcall(function()
+        local client = LocalPlayer.PlayerScripts:FindFirstChild("Client")
+        if client then
+            local eventsFolder = client:FindFirstChild("Events")
+            if eventsFolder then
+                local er = eventsFolder:FindFirstChild("EventRunner")
+                if er then
+                    local req = require(er)
+                    if req then
+                        if req.start and typeof(req.start) == "function" then req.start(eventName); triggered = true end
+                        if req.trigger and typeof(req.trigger) == "function" then req.trigger(eventName); triggered = true end
+                        if req.run and typeof(req.run) == "function" then req.run(eventName); triggered = true end
+                        if req[eventName] and typeof(req[eventName]) == "function" then req[eventName](); triggered = true end
+                        if req[norm] and typeof(req[norm]) == "function" then req[norm](); triggered = true end
+                    end
+                end
+                -- Coba modul spesifik event di dalam folder Events
+                for _, mod in ipairs(eventsFolder:GetChildren()) do
+                    if string.find(string.lower(mod.Name), norm) and mod:IsA("ModuleScript") then
+                        local mReq = require(mod)
+                        if mReq then
+                            if mReq.start then mReq.start(); triggered = true end
+                            if mReq.run then mReq.run(); triggered = true end
+                            if mReq.trigger then mReq.trigger(); triggered = true end
+                        end
+                    end
+                end
+            end
+        end
+    end)
+
+    -- 3. Scan ReplicatedStorage untuk Remote Event
+    pcall(function()
+        for _, obj in ipairs(game:GetDescendants()) do
+            if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
+                local n = string.lower(obj.Name)
+                if string.find(n, "event") or string.find(n, norm) then
+                    if obj:IsA("RemoteEvent") then
+                        obj:FireServer(eventName)
+                        obj:FireServer(norm)
+                        triggered = true
+                    elseif obj:IsA("RemoteFunction") then
+                        obj:InvokeServer(eventName)
+                        triggered = true
+                    end
+                end
+            end
+        end
+    end)
+
+    return triggered
+end
+
+-- Unlock Semua Event Token / Badge secara lokal di UI
+local function unlockAllEventTokens()
+    local count = 0
+    pcall(function()
+        -- Cari atribut token pada LocalPlayer
+        for attrName, _ in pairs(LocalPlayer:GetAttributes()) do
+            if string.find(string.lower(attrName), "event") or string.find(string.lower(attrName), "token") then
+                LocalPlayer:SetAttribute(attrName, 999)
+                count = count + 1
+            end
+        end
+        -- Cari badge/counter text di PlayerGui
+        for _, label in ipairs(LocalPlayer.PlayerGui:GetDescendants()) do
+            if label:IsA("TextLabel") and (label.Text == "0" or label.Text == "1" or label.Text == "LOCKED") then
+                local p = label.Parent
+                if p and (string.find(string.lower(p.Name), "event") or string.find(string.lower(p.Name), "badge") or string.find(string.lower(p.Name), "count")) then
+                    label.Text = "999"
+                    count = count + 1
+                end
+            end
+        end
+    end)
+    return count
+end
+
+-- EVENT 1: Weightless (Zero-G)
+local function toggleWeightless(enable)
+    GameEvents.WeightlessActive = enable
+    if enable then
+        workspace.Gravity = 10
+        for _, dummy in ipairs(getAllDummies()) do
+            local root = dummy:FindFirstChild("HumanoidRootPart") or dummy:FindFirstChild("Torso")
+            if root and not root:FindFirstChild("AntiGravForce") then
+                local bf = Instance.new("BodyForce")
+                bf.Name = "AntiGravForce"
+                bf.Force = Vector3.new(0, 196.2 * root:GetMass() * 0.95, 0)
+                bf.Parent = root
+            end
+        end
+    else
+        workspace.Gravity = GameEvents.OriginalGravity
+        for _, dummy in ipairs(getAllDummies()) do
+            for _, f in ipairs(dummy:GetDescendants()) do
+                if f.Name == "AntiGravForce" then f:Destroy() end
+            end
+        end
+    end
+end
+
+-- EVENT 2: Deep Freeze
+local function triggerDeepFreeze()
+    triggerNativeGameEvent("Deep Freeze")
+    local count = 0
+    for _, dummy in ipairs(getAllDummies()) do
+        pcall(function()
+            for _, p in ipairs(dummy:GetDescendants()) do
+                if p:IsA("BasePart") then
+                    p.Anchored = true
+                    p.Material = Enum.Material.Ice
+                    p.Color = Color3.fromRGB(160, 230, 255)
+                    if not p:FindFirstChild("FreezeSparkle") then
+                        local sp = Instance.new("Sparkles")
+                        sp.Name = "FreezeSparkle"
+                        sp.SparkleColor = Color3.fromRGB(200, 255, 255)
+                        sp.Parent = p
+                    end
+                end
+            end
+            count = count + 1
+        end)
+    end
+    return count
+end
+
+-- EVENT 3: Falling Dummies
+local function spawnFallingDummy()
+    local dummies = getAllDummies()
+    if #dummies == 0 then return end
+    local myRoot = getRootPart()
+    local center = myRoot and myRoot.Position or Vector3.new(0, 10, 0)
+    local target = dummies[math.random(1, #dummies)]
+    local dRoot = target:FindFirstChild("HumanoidRootPart") or target:FindFirstChild("Torso")
+    if dRoot and not dRoot.Anchored then
+        local dropPos = center + Vector3.new(math.random(-60, 60), 220, math.random(-60, 60))
+        dRoot.CFrame = CFrame.new(dropPos)
+        dRoot.AssemblyLinearVelocity = Vector3.new(math.random(-20, 20), -80, math.random(-20, 20))
+        dRoot.AssemblyAngularVelocity = Vector3.new(math.random(-15, 15), math.random(-15, 15), math.random(-15, 15))
+    end
+end
+
+-- EVENT 4: Wildfire
+local function triggerWildfire()
+    triggerNativeGameEvent("Wildfire")
+    local count = 0
+    for _, dummy in ipairs(getAllDummies()) do
+        pcall(function()
+            local torso = dummy:FindFirstChild("Torso") or dummy:FindFirstChild("UpperTorso") or dummy:FindFirstChild("HumanoidRootPart")
+            if torso and not torso:FindFirstChild("WildfireFx") then
+                local fire = Instance.new("Fire")
+                fire.Name = "WildfireFx"
+                fire.Size = 8
+                fire.Heat = 15
+                fire.Parent = torso
+
+                local smoke = Instance.new("Smoke")
+                smoke.Name = "WildfireSmoke"
+                smoke.Size = 4
+                smoke.RiseVelocity = 8
+                smoke.Parent = torso
+                count = count + 1
+            end
+            local hum = dummy:FindFirstChildOfClass("Humanoid")
+            if hum then
+                hum:TakeDamage(25)
+            end
+        end)
+    end
+    return count
+end
+
+-- EVENT 5: Mini Dummies
+local function triggerMiniDummies()
+    triggerNativeGameEvent("Mini Dummies")
+    local count = 0
+    for _, dummy in ipairs(getAllDummies()) do
+        pcall(function()
+            local hum = dummy:FindFirstChildOfClass("Humanoid")
+            if hum then
+                for _, s in ipairs({"BodyDepthScale", "BodyHeightScale", "BodyWidthScale", "HeadScale"}) do
+                    local sc = hum:FindFirstChild(s)
+                    if sc and sc:IsA("NumberValue") then
+                        sc.Value = 0.35
+                    end
+                end
+            end
+            for _, p in ipairs(dummy:GetChildren()) do
+                if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" then
+                    p.Size = p.Size * 0.45
+                end
+            end
+            count = count + 1
+        end)
+    end
+    return count
+end
+
+-- EVENT 6: Giant Dummy
+local function triggerGiantDummy()
+    triggerNativeGameEvent("Giant Dummy")
+    local dummies = getAllDummies()
+    if #dummies == 0 then return false end
+    local target = dummies[math.random(1, #dummies)]
+    pcall(function()
+        local hum = target:FindFirstChildOfClass("Humanoid")
+        if hum then
+            hum.MaxHealth = 50000
+            hum.Health = 50000
+            for _, s in ipairs({"BodyDepthScale", "BodyHeightScale", "BodyWidthScale", "HeadScale"}) do
+                local sc = hum:FindFirstChild(s)
+                if sc and sc:IsA("NumberValue") then
+                    sc.Value = 6.0
+                end
+            end
+        end
+        for _, p in ipairs(target:GetChildren()) do
+            if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" then
+                p.Size = p.Size * 4.5
+            end
+        end
+        if not target:FindFirstChild("GiantAura") then
+            local hl = Instance.new("Highlight")
+            hl.Name = "GiantAura"
+            hl.FillColor = Color3.fromRGB(255, 60, 60)
+            hl.OutlineColor = Color3.fromRGB(255, 255, 100)
+            hl.Parent = target
+        end
+    end)
+    return true
+end
+
+-- EVENT 7: Meteor Rain
+local function spawnMeteor()
+    local myRoot = getRootPart()
+    local center = myRoot and myRoot.Position or Vector3.new(0, 10, 0)
+    local startPos = center + Vector3.new(math.random(-120, 120), 280, math.random(-120, 120))
+    local targetPos = center + Vector3.new(math.random(-100, 100), 0, math.random(-100, 100))
+
+    local meteor = Instance.new("Part")
+    meteor.Name = "MeteorPart"
+    meteor.Shape = Enum.PartType.Ball
+    meteor.Size = Vector3.new(8, 8, 8)
+    meteor.Material = Enum.Material.Basalt
+    meteor.Color = Color3.fromRGB(45, 35, 30)
+    meteor.CFrame = CFrame.new(startPos)
+    meteor.CanCollide = false
+    meteor.Parent = workspace
+
+    local fire = Instance.new("Fire")
+    fire.Size = 20
+    fire.Heat = 25
+    fire.Parent = meteor
+
+    local smoke = Instance.new("Smoke")
+    smoke.Size = 10
+    smoke.Color = Color3.fromRGB(80, 50, 40)
+    smoke.Parent = meteor
+
+    local dir = (targetPos - startPos).Unit
+    meteor.AssemblyLinearVelocity = dir * 180
+
+    meteor.Touched:Connect(function(hit)
+        if hit and not hit:IsDescendantOf(LocalPlayer.Character) and hit ~= meteor then
+            local exp = Instance.new("Explosion")
+            exp.Position = meteor.Position
+            exp.BlastRadius = 25
+            exp.BlastPressure = 350000
+            exp.Parent = workspace
+            meteor:Destroy()
+        end
+    end)
+
+    task.delay(4, function()
+        if meteor and meteor.Parent then meteor:Destroy() end
+    end)
+end
+
+-- EVENT 8: Tornado
+local tornadoCenter = nil
+local tornadoConn = nil
+local function toggleTornado(enable)
+    GameEvents.TornadoActive = enable
+    if enable then
+        triggerNativeGameEvent("Tornado")
+        local myRoot = getRootPart()
+        local centerPos = (myRoot and (myRoot.Position + myRoot.CFrame.LookVector * 25)) or Vector3.new(0, 15, 0)
+
+        tornadoCenter = Instance.new("Part")
+        tornadoCenter.Name = "TornadoVortex"
+        tornadoCenter.Anchored = true
+        tornadoCenter.CanCollide = false
+        tornadoCenter.Transparency = 0.8
+        tornadoCenter.Size = Vector3.new(12, 60, 12)
+        tornadoCenter.Position = centerPos
+        tornadoCenter.Color = Color3.fromRGB(180, 180, 200)
+        tornadoCenter.Parent = workspace
+
+        local smoke = Instance.new("Smoke")
+        smoke.Size = 25
+        smoke.RiseVelocity = 35
+        smoke.Opacity = 0.7
+        smoke.Color = Color3.fromRGB(150, 150, 160)
+        smoke.Parent = tornadoCenter
+
+        tornadoConn = RunService.Heartbeat:Connect(function()
+            if not GameEvents.TornadoActive or not tornadoCenter then return end
+            for _, dummy in ipairs(getAllDummies()) do
+                local dRoot = dummy:FindFirstChild("HumanoidRootPart") or dummy:FindFirstChild("Torso")
+                if dRoot and not dRoot.Anchored then
+                    local offset = dRoot.Position - tornadoCenter.Position
+                    local dist = offset.Magnitude
+                    if dist < 90 then
+                        -- Gaya pusaran spiral melingkar + tarikan ke atas
+                        local tangent = Vector3.new(-offset.Z, 0, offset.X).Unit
+                        local inward = -offset.Unit
+                        local upward = Vector3.new(0, 1, 0)
+                        dRoot.AssemblyLinearVelocity = (tangent * 80) + (inward * 40) + (upward * 65)
+                    end
+                end
+            end
+        end)
+    else
+        if tornadoConn then tornadoConn:Disconnect(); tornadoConn = nil end
+        if tornadoCenter then tornadoCenter:Destroy(); tornadoCenter = nil end
+    end
+end
+
+-- EVENT 9: Black Hole
+local blackHoleCenter = nil
+local blackHoleConn = nil
+local function toggleBlackHole(enable)
+    GameEvents.BlackHoleActive = enable
+    if enable then
+        triggerNativeGameEvent("Black Hole")
+        local myRoot = getRootPart()
+        local pos = (myRoot and (myRoot.Position + Vector3.new(0, 30, 0))) or Vector3.new(0, 40, 0)
+
+        blackHoleCenter = Instance.new("Part")
+        blackHoleCenter.Name = "BlackHoleSingularity"
+        blackHoleCenter.Shape = Enum.PartType.Ball
+        blackHoleCenter.Size = Vector3.new(16, 16, 16)
+        blackHoleCenter.Material = Enum.Material.Neon
+        blackHoleCenter.Color = Color3.fromRGB(0, 0, 0)
+        blackHoleCenter.Anchored = true
+        blackHoleCenter.CanCollide = false
+        blackHoleCenter.Position = pos
+        blackHoleCenter.Parent = workspace
+
+        -- Accretion Disk (Cincin Emas Menyala)
+        local ring = Instance.new("SelectionBox")
+        ring.Adornee = blackHoleCenter
+        ring.Color3 = Color3.fromRGB(255, 160, 40)
+        ring.SurfaceTransparency = 0.3
+        ring.Parent = blackHoleCenter
+
+        blackHoleConn = RunService.Heartbeat:Connect(function()
+            if not GameEvents.BlackHoleActive or not blackHoleCenter then return end
+            for _, dummy in ipairs(getAllDummies()) do
+                local dRoot = dummy:FindFirstChild("HumanoidRootPart") or dummy:FindFirstChild("Torso")
+                if dRoot and not dRoot.Anchored then
+                    local diff = blackHoleCenter.Position - dRoot.Position
+                    local dist = diff.Magnitude
+                    if dist < 180 then
+                        local pull = diff.Unit * math.clamp(2800 / (dist + 5), 50, 350)
+                        dRoot.AssemblyLinearVelocity = pull
+                        if dist < 12 then
+                            dummy:BreakJoints()
+                        end
+                    end
+                end
+            end
+        end)
+    else
+        if blackHoleConn then blackHoleConn:Disconnect(); blackHoleConn = nil end
+        if blackHoleCenter then blackHoleCenter:Destroy(); blackHoleCenter = nil end
+    end
+end
+
+-- Hentikan Semua Bencana Aktif & Pulihkan Map
+local function stopAllActiveEvents()
+    toggleWeightless(false)
+    toggleTornado(false)
+    toggleBlackHole(false)
+    GameEvents.FallingDummiesLoop = false
+    GameEvents.MeteorRainLoop = false
+
+    -- Hapus efek api, smoke, es, gravitasi
+    for _, dummy in ipairs(getAllDummies()) do
+        pcall(function()
+            for _, obj in ipairs(dummy:GetDescendants()) do
+                if obj.Name == "WildfireFx" or obj.Name == "WildfireSmoke" or obj.Name == "FreezeSparkle" or obj.Name == "AntiGravForce" then
+                    obj:Destroy()
+                end
+                if obj:IsA("BasePart") and obj.Material == Enum.Material.Ice then
+                    obj.Material = Enum.Material.SmoothPlastic
+                    obj.Anchored = false
+                end
+            end
+        end)
+    end
+end
+'''
+
+print("Events code defined, length:", len(events_code))
+'''
+print("Done writing scratch test.")
+'''
+with open(r'C:\Users\MarvinDIrly\.gemini\antigravity\brain\675f2a7b-04a2-468c-98a5-ba01bca713d7\scratch\test_events_code.py', 'w', encoding='utf-8') as f:
+    f.write(events_code)
+
 -- ═══════════════════════════════════════════
 --  DEVICE ID RESOLVER & CONFIG MANAGER
 -- ═══════════════════════════════════════════
@@ -843,6 +1299,155 @@ FarmTab:CreateButton({
         Window:Notify({ Title = "Unfreeze", Content = "AI dummy dipulihkan normal.", Duration = 2 })
     end
 })
+
+-- ╔═══════════════════════════════════════════╗
+-- ║  TAB 2: EVENTS & BENCANA MAP              ║
+-- ╚═══════════════════════════════════════════╝
+local EventsTab = Window:CreateTab("Events", "zap", "Main")
+EventsTab:CreateSection("Bypass & Kontrol Seluruh Event")
+
+EventsTab:CreateButton({
+    Name = "Unlock All In-Game Event Tokens (999x Penggunaan)",
+    Callback = function()
+        local c = unlockAllEventTokens()
+        Window:Notify({ Title = "Events Unlocked", Content = "Berhasil meng-unlock token event di UI/Client! (" .. c .. " items)", Duration = 3 })
+    end
+})
+
+EventsTab:CreateButton({
+    Name = "Hentikan Semua Bencana Aktif (Reset Map Damai)",
+    Callback = function()
+        stopAllActiveEvents()
+        Window:Notify({ Title = "Events Reset", Content = "Seluruh bencana dihentikan. Map dikembalikan ke normal.", Duration = 2.5 })
+    end
+})
+
+EventsTab:CreateSection("1. Gravitasi & Cuaca Ekstrem")
+
+EventsTab:CreateToggle({
+    Name = "Weightless (Gravitasi Nol / Melayang Bebas)",
+    CurrentValue = false,
+    Callback = function(v)
+        triggerNativeGameEvent("Weightless")
+        toggleWeightless(v)
+        Window:Notify({ Title = "Weightless", Content = v and "Zero-G AKTIF! Semua ragdoll melayang bebas di udara." or "Gravitasi normal kembali.", Duration = 2 })
+    end
+})
+
+EventsTab:CreateButton({
+    Name = "Deep Freeze (Bekukan Semua Ragdoll Menjadi Es)",
+    Callback = function()
+        local count = triggerDeepFreeze()
+        Window:Notify({ Title = "Deep Freeze", Content = count .. " ragdoll berhasil dibekukan menjadi patung es!", Duration = 3 })
+    end
+})
+
+EventsTab:CreateButton({
+    Name = "Wildfire (Bakar Seluruh Ragdoll dengan Api Membara)",
+    Callback = function()
+        local count = triggerWildfire()
+        Window:Notify({ Title = "Wildfire", Content = count .. " ragdoll dilalap api kebakaran membara!", Duration = 3 })
+    end
+})
+
+EventsTab:CreateSection("2. Modifikasi Ukuran & Hujan Ragdoll")
+
+EventsTab:CreateButton({
+    Name = "Falling Dummies (Jatuhkan Hujan Dummy Sekali)",
+    Callback = function()
+        triggerNativeGameEvent("Falling Dummies")
+        for i = 1, 5 do
+            spawnFallingDummy()
+            task.wait(0.05)
+        end
+        Window:Notify({ Title = "Falling Dummies", Content = "Hujan dummy dijatuhkan dari langit!", Duration = 2 })
+    end
+})
+
+local fallingDummiesLoop = false
+EventsTab:CreateToggle({
+    Name = "Loop Falling Dummies (Hujan Dummy Terus Menerus)",
+    CurrentValue = false,
+    Callback = function(v)
+        fallingDummiesLoop = v
+        Window:Notify({ Title = "Falling Dummies", Content = v and "Hujan dummy terus menerus AKTIF!" or "Hujan dummy dihentikan.", Duration = 2 })
+        if v then
+            task.spawn(function()
+                while fallingDummiesLoop do
+                    spawnFallingDummy()
+                    task.wait(0.6)
+                end
+            end)
+        end
+    end
+})
+
+EventsTab:CreateButton({
+    Name = "Mini Dummies (Ubah Semua Ragdoll Menjadi Kerdil)",
+    Callback = function()
+        local count = triggerMiniDummies()
+        Window:Notify({ Title = "Mini Dummies", Content = count .. " ragdoll diubah menjadi ukuran kerdil/chibi!", Duration = 3 })
+    end
+})
+
+EventsTab:CreateButton({
+    Name = "Giant Dummy (Bangkitkan Dummy Raksasa Titan)",
+    Callback = function()
+        local ok = triggerGiantDummy()
+        Window:Notify({ Title = "Giant Dummy", Content = ok and "Dummy Raksasa Titan berhasil dibangkitkan!" or "Tidak ada dummy di map.", Duration = 3 })
+    end
+})
+
+EventsTab:CreateSection("3. Bencana Kosmik & Kehancuran Massal")
+
+EventsTab:CreateButton({
+    Name = "Meteor Rain (Panggil Hujan Meteor Sekali)",
+    Callback = function()
+        triggerNativeGameEvent("Meteor Rain")
+        for i = 1, 4 do
+            spawnMeteor()
+            task.wait(0.2)
+        end
+        Window:Notify({ Title = "Meteor Rain", Content = "Hujan meteor berapi menghujani map!", Duration = 3 })
+    end
+})
+
+local meteorRainLoop = false
+EventsTab:CreateToggle({
+    Name = "Loop Meteor Rain (Hujan Meteor Beruntun)",
+    CurrentValue = false,
+    Callback = function(v)
+        meteorRainLoop = v
+        Window:Notify({ Title = "Meteor Rain", Content = v and "Hujan meteor beruntun AKTIF!" or "Hujan meteor dihentikan.", Duration = 2 })
+        if v then
+            task.spawn(function()
+                while meteorRainLoop do
+                    spawnMeteor()
+                    task.wait(1.2)
+                end
+            end)
+        end
+    end
+})
+
+EventsTab:CreateToggle({
+    Name = "Tornado (Puting Beliung Penghisap Seluruh Objek)",
+    CurrentValue = false,
+    Callback = function(v)
+        toggleTornado(v)
+        Window:Notify({ Title = "Tornado", Content = v and "Puting Beliung AKTIF! Menghisap seluruh ragdoll & objek ke pusaran angin." or "Tornado dihentikan.", Duration = 2.5 })
+    end
+})
+
+EventsTab:CreateToggle({
+    Name = "Black Hole (Singularitas Kosmik Penelan Map)",
+    CurrentValue = false,
+    Callback = function(v)
+        toggleBlackHole(v)
+        Window:Notify({ Title = "Black Hole", Content = v and "BLACK HOLE AKTIF! Seluruh map & ragdoll tersedot ke singularitas gravitasi." or "Black hole dinonaktifkan.", Duration = 2.5 })
+    end
+})
+
 
 -- ╔═══════════════════════════════════════════╗
 -- ║  TAB 2: COMBAT & TOOLS                    ║
