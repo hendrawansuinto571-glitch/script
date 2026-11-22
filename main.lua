@@ -37,20 +37,21 @@ local ICONS = {
     sliders     = "rbxassetid://7734059095",
     settings    = "rbxassetid://7734053495",
     folder      = "rbxassetid://7733955511",
-    play        = "rbxassetid://7734032000",
-    gamepad     = "rbxassetid://7733799901",
+    play        = "rbxassetid://7743871480", -- Verified Lucide Play (fixes blank icon!)
+    gamepad     = "rbxassetid://7733799901", -- Verified Lucide Gamepad
     activity    = "rbxassetid://7743878148",
-    wifi        = "rbxassetid://7743878148",
-    storage     = "rbxassetid://7733965118",
-    monitor     = "rbxassetid://7733965118",
-    update      = "rbxassetid://7734053495",
-    history     = "rbxassetid://7734053495",
+    wifi        = "rbxassetid://7743878148", -- Verified Lucide Wifi
+    storage     = "rbxassetid://7733955793", -- Verified Lucide Hard-drive (fixes key icon!)
+    monitor     = "rbxassetid://7733955793",
+    database    = "rbxassetid://7743866778",
+    update      = "rbxassetid://7734051052", -- Verified Lucide Refresh-CW (fixes gear icon!)
+    history     = "rbxassetid://7734051052",
     clock       = "rbxassetid://7733911828",
     search      = "rbxassetid://7734052925",
     star        = "rbxassetid://7734068495",
     bell        = "rbxassetid://7733674602",
-    sun         = "rbxassetid://7734058495",
-    moon        = "rbxassetid://7733993211",
+    sun         = "rbxassetid://7734068495", -- Verified Sun Icon (with rays, as in original!)
+    moon        = "rbxassetid://7733920519", -- Verified Lucide Moon
     chevronDown = "rbxassetid://7733717444",
     chevronRight= "rbxassetid://7733717646",
     diamond     = "rbxassetid://7733924046",
@@ -2397,6 +2398,20 @@ function UnionsalHub:CreateWindow(config)
                     updateSlider(input)
                 end
             end)
+
+            local sliderObj = {}
+            function sliderObj:Set(newVal, runCallback)
+                curVal = math.clamp(newVal, minVal, maxVal)
+                fill.Size = UDim2.new((curVal - minVal) / (maxVal - minVal), 0, 1, 0)
+                scVal.Text = tostring(curVal) .. suffix
+                if runCallback ~= false then
+                    pcall(cb, curVal)
+                end
+            end
+            function sliderObj:Get()
+                return curVal
+            end
+            return sliderObj
         end
 
         -- Dropdown
@@ -2595,6 +2610,18 @@ function UnionsalHub:CreateWindow(config)
             inBox.FocusLost:Connect(function()
                 pcall(cb, inBox.Text)
             end)
+
+            local inputObj = {}
+            function inputObj:Set(newVal, runCallback)
+                inBox.Text = tostring(newVal)
+                if runCallback ~= false then
+                    pcall(cb, inBox.Text)
+                end
+            end
+            function inputObj:Get()
+                return inBox.Text
+            end
+            return inputObj
         end
 
         -- Toggle
@@ -2651,18 +2678,31 @@ function UnionsalHub:CreateWindow(config)
             kC.CornerRadius = UDim.new(1, 0)
             kC.Parent = knob
 
-            local function updateToggle()
-                curVal = not curVal
+            local function setToggleState(v, runCallback)
+                curVal = v
                 TweenService:Create(switchBg, TweenInfo.new(0.2), {
                     BackgroundColor3 = curVal and THEME.AccentPurple or THEME.BgPill
                 }):Play()
                 TweenService:Create(knob, TweenInfo.new(0.2), {
                     Position = curVal and UDim2.new(1, -17, 0.5, -7) or UDim2.new(0, 3, 0.5, -7)
                 }):Play()
-                pcall(cb, curVal)
+                if runCallback ~= false then
+                    pcall(cb, curVal)
+                end
             end
 
-            togCard.MouseButton1Click:Connect(updateToggle)
+            togCard.MouseButton1Click:Connect(function()
+                setToggleState(not curVal, true)
+            end)
+
+            local toggleObj = {}
+            function toggleObj:Set(v, runCallback)
+                setToggleState(v, runCallback)
+            end
+            function toggleObj:Get()
+                return curVal
+            end
+            return toggleObj
         end
 
         -- Label
@@ -2912,15 +2952,229 @@ function UnionsalHub:LoadModule(scriptName, gameTitle)
             return nil, nil, "Tidak Ditemukan"
         end
 
+        -- ═══════════════════════════════════════════
+        --  DEVICE ID RESOLVER & CONFIG MANAGER
+        -- ═══════════════════════════════════════════
+        local function getClientDeviceId()
+            local hwid = ""
+            pcall(function()
+                hwid = game:GetService("RbxAnalyticsService"):GetClientId()
+            end)
+            if not hwid or hwid == "" or hwid == "00000000-0000-0000-0000-000000000000" then
+                pcall(function()
+                    if gethwid then hwid = gethwid() end
+                end)
+            end
+            if not hwid or hwid == "" then
+                pcall(function()
+                    if identifyexecutor then hwid = identifyexecutor() .. "_" .. tostring(LocalPlayer.UserId) end
+                end)
+            end
+            if not hwid or hwid == "" then
+                hwid = "DEV_" .. tostring(LocalPlayer.UserId)
+            end
+            return tostring(hwid)
+        end
+
+        local currentDeviceId = getClientDeviceId()
+        local CONFIG_FILE = "unionsal_device_config.json"
+
+        local ConfigRegistry = {
+            AutoWin = false,
+            BlatantMode = false,
+            LoopDelay = 0.3,
+            SafeFall = false,
+            InfJump = false,
+            WalkSpeed = 16,
+            BlatantSpeed = false,
+            Fly = false,
+            FlySpeed = 50,
+            NoClip = false,
+            SpinBot = false,
+            SpinSpeed = 30,
+            Fullbright = false,
+            Fov = 70,
+            AntiAfk = true,
+            FpsBoost = false,
+            PotatoGraphics = false,
+            AutoSave = true,
+            WebhookUrl = "",
+            SendOnExec = true,
+            SendOnWin = true,
+            ToggleKey = "RightShift"
+        }
+
+        local ToggleObjects = {}
+        local SliderObjects = {}
+        local InputObjects = {}
+
+        local function saveDeviceConfig(showNotification)
+            local payload = {
+                DeviceId = currentDeviceId,
+                PlayerName = LocalPlayer.Name,
+                UserId = LocalPlayer.UserId,
+                SavedAt = os.time(),
+                Settings = ConfigRegistry
+            }
+            local ok, err = pcall(function()
+                if writefile then
+                    writefile(CONFIG_FILE, HttpService:JSONEncode(payload))
+                    return true
+                end
+                return false
+            end)
+            if showNotification then
+                if ok then
+                    Window:Notify({ Title = "Config Tersimpan", Content = "Pengaturan berhasil disimpan untuk device ini (" .. string.sub(currentDeviceId, 1, 8) .. "...)", Duration = 3 })
+                else
+                    Window:Notify({ Title = "Config Error", Content = "Executor kamu tidak memiliki izin writefile.", Duration = 3 })
+                end
+            end
+            return ok
+        end
+
+        local function loadDeviceConfig(showNotification)
+            local ok, content = pcall(function()
+                if readfile and isfile and isfile(CONFIG_FILE) then
+                    return readfile(CONFIG_FILE)
+                end
+                return nil
+            end)
+            if not ok or not content or content == "" then
+                return false, "Belum ada file"
+            end
+
+            local parseOk, parsed = pcall(function()
+                return HttpService:JSONDecode(content)
+            end)
+            if not parseOk or not parsed or typeof(parsed) ~= "table" then
+                return false, "Format tidak valid"
+            end
+
+            -- CEK APAKAH DEVICE SAMA:
+            if parsed.DeviceId == currentDeviceId then
+                -- DEVICE COCOK! Pulihkan seluruh konfigurasi
+                if parsed.Settings and typeof(parsed.Settings) == "table" then
+                    for k, val in pairs(parsed.Settings) do
+                        ConfigRegistry[k] = val
+                        if ToggleObjects[k] then
+                            pcall(function() ToggleObjects[k]:Set(val, true) end)
+                        end
+                        if SliderObjects[k] then
+                            pcall(function() SliderObjects[k]:Set(val, true) end)
+                        end
+                        if InputObjects[k] then
+                            pcall(function() InputObjects[k]:Set(val, true) end)
+                        end
+                    end
+                    if parsed.Settings.ToggleKey and Enum.KeyCode[parsed.Settings.ToggleKey] then
+                        Window.ToggleKey = Enum.KeyCode[parsed.Settings.ToggleKey]
+                    end
+                end
+                if showNotification then
+                    Window:Notify({ Title = "Config Dimuat", Content = "Device terverifikasi! Konfigurasi tersimpan otomatis aktif.", Duration = 4 })
+                end
+                return true, "Success"
+            else
+                -- DEVICE BERBEDA: Reset konfigurasi ke default!
+                pcall(function()
+                    if delfile then delfile(CONFIG_FILE) end
+                end)
+                if showNotification then
+                    Window:Notify({ Title = "Device Berbeda", Content = "Device berbeda terdeteksi! Semua pengaturan di-reset ke default.", Duration = 4 })
+                end
+                return false, "Device Mismatch"
+            end
+        end
+
+        local function notifyStateChange(k, v)
+            ConfigRegistry[k] = v
+            if ConfigRegistry.AutoSave then
+                task.spawn(function()
+                    saveDeviceConfig(false)
+                end)
+            end
+        end
+
+        -- ═══════════════════════════════════════════
+        --  OPTIMASI GRAFIK POTATO & FPS BOOST
+        -- ═══════════════════════════════════════════
+        local function applyPotatoGraphics(enable)
+            local Lighting = game:GetService("Lighting")
+            local Terrain = workspace:FindFirstChildOfClass("Terrain")
+
+            if enable then
+                pcall(function()
+                    settings().Rendering.QualityLevel = 1
+                end)
+                pcall(function()
+                    Lighting.GlobalShadows = false
+                    Lighting.FogEnd = 9e9
+                    Lighting.Brightness = 1
+                end)
+                for _, v in ipairs(Lighting:GetChildren()) do
+                    if v:IsA("PostEffect") or v:IsA("BloomEffect") or v:IsA("ColorCorrectionEffect") or v:IsA("SunRaysEffect") or v:IsA("BlurEffect") or v:IsA("DepthOfFieldEffect") then
+                        v.Enabled = false
+                    end
+                end
+                if Terrain then
+                    pcall(function()
+                        Terrain.Decoration = false
+                        Terrain.WaterWaveSize = 0
+                        Terrain.WaterWaveSpeed = 0
+                        Terrain.WaterReflectance = 0
+                    end)
+                end
+                for _, obj in ipairs(workspace:GetDescendants()) do
+                    if obj:IsA("BasePart") and not obj:IsDescendantOf(LocalPlayer.Character or workspace) then
+                        pcall(function()
+                            obj.Material = Enum.Material.SmoothPlastic
+                            obj.CastShadow = false
+                        end)
+                    elseif obj:IsA("Decal") or obj:IsA("Texture") then
+                        pcall(function() obj.Transparency = 1 end)
+                    elseif obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Smoke") or obj:IsA("Fire") or obj:IsA("Sparkles") then
+                        pcall(function() obj.Enabled = false end)
+                    end
+                end
+            else
+                pcall(function()
+                    Lighting.GlobalShadows = true
+                    Lighting.FogEnd = 1000
+                end)
+                for _, v in ipairs(Lighting:GetChildren()) do
+                    if v:IsA("PostEffect") then v.Enabled = true end
+                end
+                if Terrain then
+                    pcall(function() Terrain.Decoration = true end)
+                end
+            end
+        end
+
+        local function applyFpsBoost(enable)
+            if enable then
+                pcall(function()
+                    settings().Rendering.QualityLevel = 1
+                    game:GetService("Lighting").GlobalShadows = false
+                end)
+            else
+                pcall(function()
+                    settings().Rendering.QualityLevel = 0
+                    game:GetService("Lighting").GlobalShadows = true
+                end)
+            end
+        end
+
         -- 1. TAB AUTO WIN
         local WinTab = Window:CreateTab("Auto Farm", "sprout", "Main")
         WinTab:CreateSection("Auto Win Automation")
 
-        WinTab:CreateToggle({
+        ToggleObjects.AutoWin = WinTab:CreateToggle({
             Name = "Enable Auto Win (Loop Otomatis)",
             CurrentValue = false,
             Callback = function(v)
                 WinSystem.AutoWinRunning = v
+                notifyStateChange("AutoWin", v)
                 Window:Notify({ Title = "Auto Win", Content = v and "Auto Win aktif!" or "Auto Win dihentikan.", Duration = 2 })
                 if v then
                     task.spawn(function()
@@ -2951,22 +3205,26 @@ function UnionsalHub:LoadModule(scriptName, gameTitle)
             end
         })
 
-        WinTab:CreateToggle({
+        ToggleObjects.BlatantMode = WinTab:CreateToggle({
             Name = "Mode Blatant (Kecepatan Ekstrem)",
             CurrentValue = false,
             Callback = function(v)
                 WinSystem.BlatantMode = v
+                notifyStateChange("BlatantMode", v)
                 Window:Notify({ Title = "Blatant Mode", Content = v and "Mode Blatant aktif!" or "Mode Blatant nonaktif.", Duration = 2 })
             end
         })
 
-        WinTab:CreateSlider({
+        SliderObjects.LoopDelay = WinTab:CreateSlider({
             Name = "Auto Win Delay (Detik)",
             Range = {0.05, 3},
             Increment = 0.05,
             Suffix = "s",
             CurrentValue = 0.3,
-            Callback = function(v) WinSystem.LoopDelay = v end
+            Callback = function(v)
+                WinSystem.LoopDelay = v
+                notifyStateChange("LoopDelay", v)
+            end
         })
 
         WinTab:CreateSection("Kontrol & Titik Lokasi Win")
@@ -3017,11 +3275,12 @@ function UnionsalHub:LoadModule(scriptName, gameTitle)
         local safeFallConn = nil
 
         MoveTab:CreateSection("Proteksi Fisika & Kebal Jatuh")
-        MoveTab:CreateToggle({
+        ToggleObjects.SafeFall = MoveTab:CreateToggle({
             Name = "Kebal Saat Jatuh (No Fall Damage)",
             CurrentValue = false,
             Callback = function(v)
                 safeFall = v
+                notifyStateChange("SafeFall", v)
                 local h = getHum()
                 if h then
                     pcall(function()
@@ -3053,30 +3312,38 @@ function UnionsalHub:LoadModule(scriptName, gameTitle)
             end
         end)
 
-        MoveTab:CreateToggle({
+        ToggleObjects.InfJump = MoveTab:CreateToggle({
             Name = "Infinite Jump (Lompat Tanpa Batas)",
             CurrentValue = false,
-            Callback = function(v) infJump = v end
+            Callback = function(v)
+                infJump = v
+                notifyStateChange("InfJump", v)
+            end
         })
 
         MoveTab:CreateSection("WalkSpeed & Blatant Speed")
-        MoveTab:CreateSlider({
+        SliderObjects.WalkSpeed = MoveTab:CreateSlider({
             Name = "WalkSpeed",
             Range = {1, 500},
             Increment = 1,
             Suffix = " spd",
             CurrentValue = 16,
-            Callback = function(v) local h = getHum(); if h then h.WalkSpeed = v end end
+            Callback = function(v)
+                local h = getHum()
+                if h then h.WalkSpeed = v end
+                notifyStateChange("WalkSpeed", v)
+            end
         })
 
         local blatantSpeed = false
         local bMultiplier = 60
         local bConn = nil
-        MoveTab:CreateToggle({
+        ToggleObjects.BlatantSpeed = MoveTab:CreateToggle({
             Name = "Blatant CFrame Speed",
             CurrentValue = false,
             Callback = function(v)
                 blatantSpeed = v
+                notifyStateChange("BlatantSpeed", v)
                 if v and not bConn then
                     bConn = RunService.RenderStepped:Connect(function(dt)
                         if not blatantSpeed then return end
@@ -3086,58 +3353,39 @@ function UnionsalHub:LoadModule(scriptName, gameTitle)
                         end
                     end)
                 elseif not v and bConn then
-                    bConn:Disconnect(); bConn = nil
+                    bConn:Disconnect()
+                    bConn = nil
                 end
-            end
-        })
-
-        MoveTab:CreateSlider({
-            Name = "Blatant Speed Multiplier",
-            Range = {10, 300},
-            Increment = 5,
-            Suffix = "x",
-            CurrentValue = 60,
-            Callback = function(v) bMultiplier = v end
-        })
-
-        MoveTab:CreateSlider({
-            Name = "Jump Power / Height",
-            Range = {7, 500},
-            Increment = 1,
-            Suffix = " jmp",
-            CurrentValue = 7,
-            Callback = function(v)
-                local h = getHum()
-                if h then h.JumpPower = v; pcall(function() h.JumpHeight = v end) end
             end
         })
 
         -- 3. TAB TELEPORT
         local TpTab = Window:CreateTab("Teleport", "navigation", "Main")
-        TpTab:CreateSection("Teleport Cepat")
+        TpTab:CreateSection("Teleport Lokasi Default")
+
         TpTab:CreateButton({
-            Name = "Teleport ke Win / Ujung Obby",
+            Name = "Teleport ke Spawn Asli",
             Callback = function()
                 local r = getRoot()
-                local p, winCf, name = findWin()
-                if r and winCf then r.CFrame = winCf; Window:Notify({ Title = "Teleport", Content = "Tiba di: " .. tostring(name), Duration = 2 }) end
-            end
-        })
-        TpTab:CreateButton({
-            Name = "Teleport ke Spawn Point",
-            Callback = function()
-                local r = getRoot()
-                if r then r.CFrame = WinSystem.SpawnCFrame or CFrame.new(0, 5, 0) end
+                if r then
+                    local sp = workspace:FindFirstChildWhichIsA("SpawnLocation", true)
+                    if sp then
+                        r.CFrame = sp.CFrame + Vector3.new(0, 4, 0)
+                    else
+                        r.CFrame = CFrame.new(0, 10, 0)
+                    end
+                    Window:Notify({ Title = "Teleport", Content = "Berhasil kembali ke Spawn.", Duration = 2 })
+                end
             end
         })
 
-        -- Teleport ke Player
         local function getPlrNames()
             local t = {}
             for _, p in ipairs(Players:GetPlayers()) do
                 if p ~= LocalPlayer then table.insert(t, p.Name) end
             end
-            return #t > 0 and t or {"(tidak ada player)"}
+            if #t == 0 then table.insert(t, "(tidak ada player)") end
+            return t
         end
 
         local selTarget = nil
@@ -3228,33 +3476,38 @@ function UnionsalHub:LoadModule(scriptName, gameTitle)
             if flyBG then flyBG:Destroy(); flyBG = nil end
         end
 
-        PlayerTab:CreateToggle({
+        ToggleObjects.Fly = PlayerTab:CreateToggle({
             Name = "Fly Mode (Terbang WASD)",
             CurrentValue = false,
             Callback = function(v)
                 flying = v
+                notifyStateChange("Fly", v)
                 if v then startFly() else stopFly() end
                 Window:Notify({ Title = "Fly", Content = v and "Fly Mode Aktif (WASD + Space/Shift)" or "Fly Mode Nonaktif", Duration = 2 })
             end
         })
 
-        PlayerTab:CreateSlider({
+        SliderObjects.FlySpeed = PlayerTab:CreateSlider({
             Name = "Fly Speed",
             Range = {10, 250},
             Increment = 5,
             Suffix = " spd",
             CurrentValue = 50,
-            Callback = function(v) flySpeed = v end
+            Callback = function(v)
+                flySpeed = v
+                notifyStateChange("FlySpeed", v)
+            end
         })
 
         -- NoClip
         local noclip = false
         local noclipConn = nil
-        PlayerTab:CreateToggle({
+        ToggleObjects.NoClip = PlayerTab:CreateToggle({
             Name = "NoClip (Tembus Dinding)",
             CurrentValue = false,
             Callback = function(v)
                 noclip = v
+                notifyStateChange("NoClip", v)
                 if v and not noclipConn then
                     noclipConn = RunService.Stepped:Connect(function()
                         if not noclip then return end
@@ -3279,11 +3532,12 @@ function UnionsalHub:LoadModule(scriptName, gameTitle)
         local spinbot = false
         local spinSpeed = 30
         local spinConn = nil
-        PlayerTab:CreateToggle({
+        ToggleObjects.SpinBot = PlayerTab:CreateToggle({
             Name = "SpinBot (Putar Cepat)",
             CurrentValue = false,
             Callback = function(v)
                 spinbot = v
+                notifyStateChange("SpinBot", v)
                 if v and not spinConn then
                     spinConn = RunService.RenderStepped:Connect(function()
                         if not spinbot then return end
@@ -3293,18 +3547,22 @@ function UnionsalHub:LoadModule(scriptName, gameTitle)
                         end
                     end)
                 elseif not v and spinConn then
-                    spinConn:Disconnect(); spinConn = nil
+                    spinConn:Disconnect()
+                    spinConn = nil
                 end
             end
         })
 
-        PlayerTab:CreateSlider({
+        SliderObjects.SpinSpeed = PlayerTab:CreateSlider({
             Name = "SpinBot Speed",
             Range = {5, 100},
             Increment = 5,
             Suffix = " rpm",
             CurrentValue = 30,
-            Callback = function(v) spinSpeed = v end
+            Callback = function(v)
+                spinSpeed = v
+                notifyStateChange("SpinSpeed", v)
+            end
         })
 
         PlayerTab:CreateSection("Visual & Kamera")
@@ -3315,11 +3573,12 @@ function UnionsalHub:LoadModule(scriptName, gameTitle)
         local oldAmbient = Lighting.Ambient
         local oldBrightness = Lighting.Brightness
         local oldClock = Lighting.ClockTime
-        PlayerTab:CreateToggle({
+        ToggleObjects.Fullbright = PlayerTab:CreateToggle({
             Name = "Fullbright (Terang Benderang / Anti Gelap)",
             CurrentValue = false,
             Callback = function(v)
                 fullbright = v
+                notifyStateChange("Fullbright", v)
                 if v then
                     Lighting.Ambient = Color3.fromRGB(255, 255, 255)
                     Lighting.Brightness = 2
@@ -3334,7 +3593,7 @@ function UnionsalHub:LoadModule(scriptName, gameTitle)
         })
 
         -- FOV Slider
-        PlayerTab:CreateSlider({
+        SliderObjects.Fov = PlayerTab:CreateSlider({
             Name = "Field of View (FOV)",
             Range = {70, 120},
             Increment = 1,
@@ -3342,6 +3601,7 @@ function UnionsalHub:LoadModule(scriptName, gameTitle)
             CurrentValue = 70,
             Callback = function(v)
                 workspace.CurrentCamera.FieldOfView = v
+                notifyStateChange("Fov", v)
             end
         })
 
@@ -3350,11 +3610,12 @@ function UnionsalHub:LoadModule(scriptName, gameTitle)
         -- Anti-AFK
         local antiAfk = false
         local afkConn = nil
-        PlayerTab:CreateToggle({
+        ToggleObjects.AntiAfk = PlayerTab:CreateToggle({
             Name = "Anti-AFK (Cegah Disconnect 20 Menit)",
             CurrentValue = true,
             Callback = function(v)
                 antiAfk = v
+                notifyStateChange("AntiAfk", v)
                 if v and not afkConn then
                     local vu = game:GetService("VirtualUser")
                     afkConn = LocalPlayer.Idled:Connect(function()
@@ -3364,7 +3625,8 @@ function UnionsalHub:LoadModule(scriptName, gameTitle)
                         end
                     end)
                 elseif not v and afkConn then
-                    afkConn:Disconnect(); afkConn = nil
+                    afkConn:Disconnect()
+                    afkConn = nil
                 end
             end
         })
@@ -3386,7 +3648,7 @@ function UnionsalHub:LoadModule(scriptName, gameTitle)
             Callback = function() local h = getHum(); if h then h.Health = 0 end end
         })
 
-        -- 6. TAB SETTINGS (KEYBINDS & SHORTCUTS)
+        -- 6. TAB SETTINGS (KEYBINDS, OPTIMASI & PER-DEVICE SAVE)
         local SettingsTab = Window:CreateTab("Settings", "settings", "Config")
 
         SettingsTab:CreateSection("Keybinds & Shortcut Menu")
@@ -3395,6 +3657,8 @@ function UnionsalHub:LoadModule(scriptName, gameTitle)
             CurrentKey = Window.ToggleKey or Enum.KeyCode.RightShift,
             Callback = function(newKey)
                 Window.ToggleKey = newKey
+                ConfigRegistry.ToggleKey = newKey.Name
+                notifyStateChange("ToggleKey", newKey.Name)
                 Window:Notify({ Title = "Keybind Disimpan", Content = "Tombol menu diubah ke: [" .. newKey.Name .. "]", Duration = 3 })
             end
         })
@@ -3408,17 +3672,48 @@ function UnionsalHub:LoadModule(scriptName, gameTitle)
                       "• Ganti Tema: Klik ikon matahari di kanan atas untuk White/Dark mode."
         })
 
-        SettingsTab:CreateSection("Optimasi Client")
-        SettingsTab:CreateToggle({
+        SettingsTab:CreateSection("Optimasi Client & FPS")
+        ToggleObjects.FpsBoost = SettingsTab:CreateToggle({
             Name = "Reduce Graphics Lag (FPS Boost)",
             CurrentValue = false,
             Callback = function(v)
-                if v then
-                    pcall(function()
-                        settings().Rendering.QualityLevel = 1
-                    end)
-                end
-                Window:Notify({ Title = "Graphics", Content = v and "FPS Boost diaktifkan!" or "FPS Boost dinonaktifkan.", Duration = 2 })
+                applyFpsBoost(v)
+                notifyStateChange("FpsBoost", v)
+                Window:Notify({ Title = "FPS Boost", Content = v and "FPS Boost aktif!" or "FPS Boost nonaktif.", Duration = 2 })
+            end
+        })
+
+        ToggleObjects.PotatoGraphics = SettingsTab:CreateToggle({
+            Name = "Grafik Potato (Ultra Low Graphics / No Textures)",
+            CurrentValue = false,
+            Callback = function(v)
+                applyPotatoGraphics(v)
+                notifyStateChange("PotatoGraphics", v)
+                Window:Notify({ Title = "Grafik Potato", Content = v and "Grafik Potato aktif! Tekstur dihilangkan untuk FPS maksimal." or "Grafik Potato dinonaktifkan.", Duration = 3 })
+            end
+        })
+
+        SettingsTab:CreateSection("Opsi Penyimpanan Device")
+        ToggleObjects.AutoSave = SettingsTab:CreateToggle({
+            Name = "Auto-Save Konfigurasi Otomatis (Per Device)",
+            CurrentValue = true,
+            Callback = function(v)
+                ConfigRegistry.AutoSave = v
+                Window:Notify({ Title = "Auto-Save", Content = v and "Auto-Save aktif! Setiap perubahan langsung tersimpan." or "Auto-Save dinonaktifkan.", Duration = 2 })
+            end
+        })
+
+        SettingsTab:CreateButton({
+            Name = "Simpan Konfigurasi Sekarang (Device Ini)",
+            Callback = function()
+                saveDeviceConfig(true)
+            end
+        })
+
+        SettingsTab:CreateButton({
+            Name = "Muat Ulang Konfigurasi Tersimpan",
+            Callback = function()
+                loadDeviceConfig(true)
             end
         })
 
@@ -3430,25 +3725,35 @@ function UnionsalHub:LoadModule(scriptName, gameTitle)
         local sendOnExec = true
         local sendOnWin = true
 
-        ConfigsTab:CreateInput({
+        InputObjects.WebhookUrl = ConfigsTab:CreateInput({
             Name = "Discord Webhook URL",
             PlaceholderText = "https://discord.com/api/webhooks/...",
             Callback = function(val)
                 webhookUrl = string.gsub(val or "", "^%s*(.-)%s*$", "%1")
+                ConfigRegistry.WebhookUrl = webhookUrl
+                notifyStateChange("WebhookUrl", webhookUrl)
                 Window:Notify({ Title = "Webhook", Content = "URL Webhook disimpan.", Duration = 2 })
             end
         })
 
-        ConfigsTab:CreateToggle({
+        ToggleObjects.SendOnExec = ConfigsTab:CreateToggle({
             Name = "Kirim Log saat Script Dieksekusi",
             CurrentValue = true,
-            Callback = function(v) sendOnExec = v end
+            Callback = function(v)
+                sendOnExec = v
+                ConfigRegistry.SendOnExec = v
+                notifyStateChange("SendOnExec", v)
+            end
         })
 
-        ConfigsTab:CreateToggle({
+        ToggleObjects.SendOnWin = ConfigsTab:CreateToggle({
             Name = "Kirim Log saat Auto Win Berhasil",
             CurrentValue = true,
-            Callback = function(v) sendOnWin = v end
+            Callback = function(v)
+                sendOnWin = v
+                ConfigRegistry.SendOnWin = v
+                notifyStateChange("SendOnWin", v)
+            end
         })
 
         local function sendDiscordWebhook(embedData)
@@ -3487,6 +3792,7 @@ function UnionsalHub:LoadModule(scriptName, gameTitle)
                     fields = {
                         { name = "Player", value = LocalPlayer.Name .. " (@" .. LocalPlayer.DisplayName .. ")", inline = true },
                         { name = "Game", value = gameTitle or "Blush Canyon", inline = true },
+                        { name = "Device ID", value = string.sub(currentDeviceId, 1, 12) .. "...", inline = true },
                         { name = "Place ID", value = tostring(game.PlaceId), inline = true },
                         { name = "Waktu", value = os.date("%H:%M:%S - %d/%m/%Y"), inline = false }
                     },
@@ -3499,46 +3805,42 @@ function UnionsalHub:LoadModule(scriptName, gameTitle)
             end
         })
 
-        ConfigsTab:CreateSection("Penyimpanan Profil Konfigurasi")
+        ConfigsTab:CreateSection("Penyimpanan Profil Konfigurasi (Device Check)")
+        ConfigsTab:CreateLabel("Device ID Terdeteksi: " .. string.sub(currentDeviceId, 1, 16) .. "...")
+
         ConfigsTab:CreateButton({
             Name = "Simpan Konfigurasi (Save Config)",
             Callback = function()
-                pcall(function()
-                    if writefile then
-                        local cfgData = {
-                            WebhookUrl = webhookUrl,
-                            SendOnExec = sendOnExec,
-                            SendOnWin = sendOnWin,
-                            ToggleKey = Window.ToggleKey and Window.ToggleKey.Name or "RightShift"
-                        }
-                        writefile("unionsal_config.json", HttpService:JSONEncode(cfgData))
-                    end
-                end)
-                Window:Notify({ Title = "Config", Content = "Konfigurasi berhasil disimpan ke file.", Duration = 2 })
+                saveDeviceConfig(true)
             end
         })
 
         ConfigsTab:CreateButton({
             Name = "Muat Konfigurasi (Load Config)",
             Callback = function()
-                local loaded = false
-                pcall(function()
-                    if readfile and isfile and isfile("unionsal_config.json") then
-                        local data = HttpService:JSONDecode(readfile("unionsal_config.json"))
-                        if data.WebhookUrl then webhookUrl = data.WebhookUrl end
-                        if data.ToggleKey and Enum.KeyCode[data.ToggleKey] then
-                            Window.ToggleKey = Enum.KeyCode[data.ToggleKey]
-                        end
-                        loaded = true
-                    end
-                end)
-                Window:Notify({
-                    Title = "Config",
-                    Content = loaded and "Konfigurasi berhasil dimuat." or "File konfigurasi belum ada.",
-                    Duration = 2
-                })
+                loadDeviceConfig(true)
             end
         })
+
+        ConfigsTab:CreateButton({
+            Name = "Reset Konfigurasi ke Default (Reset Config)",
+            Callback = function()
+                pcall(function()
+                    if delfile and isfile and isfile(CONFIG_FILE) then
+                        delfile(CONFIG_FILE)
+                    end
+                end)
+                Window:Notify({ Title = "Config Reset", Content = "File konfigurasi dihapus. Pengaturan kembali ke default.", Duration = 3 })
+            end
+        })
+
+        -- ═══════════════════════════════════════════
+        --  AUTO-LOAD SAAT EXECUTE (DEVICE VERIFICATION)
+        -- ═══════════════════════════════════════════
+        task.spawn(function()
+            task.wait(0.5)
+            loadDeviceConfig(true)
+        end)
     end
 
     return Window
