@@ -12,6 +12,7 @@ local UserInputService= game:GetService("UserInputService")
 local HttpService     = game:GetService("HttpService")
 local StatsService    = game:GetService("Stats")
 local MarketplaceService = game:GetService("MarketplaceService")
+local Lighting           = game:GetService("Lighting")
 
 local LocalPlayer     = Players.LocalPlayer
 
@@ -279,9 +280,9 @@ end
 -- ═══════════════════════════════════════════
 local function validateGame()
     local placeId = game.PlaceId
-    local gameInfo = ALLOWED_GAMES[placeId]
+    local gameInfo = ALLOWED_GAMES[placeId] or ALLOWED_GAMES[tonumber(placeId)]
 
-    -- Cek secara dinamis melalui judul game di Marketplace
+    -- 1. Cek secara dinamis melalui judul game di Marketplace
     if not gameInfo and MarketplaceService then
         pcall(function()
             local prodInfo = MarketplaceService:GetProductInfo(placeId)
@@ -291,12 +292,30 @@ local function validateGame()
                     gameInfo = { name = prodInfo.Name, script = "blush" }
                 elseif string.find(lowerName, "egg") then
                     gameInfo = { name = prodInfo.Name, script = "egg" }
+                elseif string.find(lowerName, "ragdoll") or string.find(lowerName, "realistic") then
+                    gameInfo = { name = prodInfo.Name, script = "ragdoll" }
                 end
             end
         end)
     end
 
+    -- 2. Cek deteksi elemen khas di Workspace / PlayerScripts
     if not gameInfo then
+        pcall(function()
+            if workspace:FindFirstChild("Dummies") or workspace:FindFirstChild("Crowd") or (LocalPlayer and LocalPlayer:FindFirstChild("PlayerScripts") and LocalPlayer.PlayerScripts:FindFirstChild("Client")) then
+                gameInfo = { name = "Hyper-Realistic Ragdoll", script = "ragdoll" }
+            elseif workspace:FindFirstChild("MapMakingKit") or workspace:FindFirstChild("TeleportPart") then
+                gameInfo = { name = "Blush Canyon", script = "blush" }
+            end
+        end)
+    end
+
+    -- 3. Fallback aman: jika PlaceId belum terdata, tetap jalankan modul ragdoll tanpa kick!
+    if not gameInfo then
+        gameInfo = { name = "Hyper-Realistic Ragdoll", script = "ragdoll" }
+    end
+
+    if false and not gameInfo then
         -- Game tidak didukung: Tampilkan kick screen modern glass bento lalu kick
         local kickGui = Instance.new("ScreenGui")
         kickGui.Name = "UnionsalKickScreen"
@@ -3845,6 +3864,11 @@ function UnionsalHub:LoadModule(scriptName, gameTitle)
             loadDeviceConfig(true)
         end)
     elseif scriptName == "ragdoll" then
+        -- Helper karakter & services lokal
+        local function getCharacter() return LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait() end
+        local function getHumanoid() local c = getCharacter(); return c and c:FindFirstChildOfClass("Humanoid") end
+        local function getRootPart() local c = getCharacter(); return c and c:FindFirstChild("HumanoidRootPart") end
+
 -- ═══════════════════════════════════════════
 --  SISTEM DETEKSI GAME & DUMMY SCANNER
 -- ═══════════════════════════════════════════
