@@ -1962,7 +1962,7 @@ function UnionsalHub:CreateWindow(config)
         catIcon.Size = UDim2.new(0, 14, 0, 14)
         catIcon.Position = UDim2.new(0, 4, 0.5, -7)
         catIcon.BackgroundTransparency = 1
-        catIcon.Image = (catName == "Config" and ICONS.sliders or ICONS.grid)
+        catIcon.Image = (catName == "Config" and ICONS.sliders or (catName == "Senjata" and (ICONS.sword or ICONS.grid) or ICONS.grid))
         catIcon.ImageColor3 = THEME.TextMuted
         catIcon.Parent = catContainer
 
@@ -2035,6 +2035,7 @@ function UnionsalHub:CreateWindow(config)
 
     -- Create Category headers
     getCategoryHeader("Main", 10)
+    getCategoryHeader("Senjata", 40)
     getCategoryHeader("Config", 100)
 
     -- Function to switch active tab
@@ -2139,7 +2140,7 @@ function UnionsalHub:CreateWindow(config)
     -- ╚═══════════════════════════════════════════╝
     function Window:CreateTab(tabName, iconName, categoryName)
         categoryName = categoryName or "Main"
-        local baseOrder = (categoryName == "Config" and 100 or 15)
+        local baseOrder = (categoryName == "Config" and 100 or (categoryName == "Senjata" and 45 or 15))
 
         local TabPage = Instance.new("ScrollingFrame")
         TabPage.Name = "Page_" .. tabName
@@ -4239,8 +4240,15 @@ local function triggerGameRevive()
         end
     end)
 
-    -- 4. LocalPlayer attribute trick (HRR menggunakan atribut untuk trigger event)
+    -- 4. Simulasi Keybind R (game HRR: R = Revive All Dummies)
     pcall(function()
+        local uis = UserInputService
+        -- Simulate R key press (HRR uses R for Revive)
+        if firesignal then
+            firesignal(uis.InputBegan, {KeyCode = Enum.KeyCode.R, UserInputType = Enum.UserInputType.Keyboard}, false)
+            task.wait(0.05)
+            firesignal(uis.InputEnded, {KeyCode = Enum.KeyCode.R, UserInputType = Enum.UserInputType.Keyboard}, false)
+        end
         LocalPlayer:SetAttribute("HRR_Revive", true)
         task.wait(0.1)
         LocalPlayer:SetAttribute("HRR_Revive", nil)
@@ -4641,7 +4649,7 @@ local function triggerGiantDummy()
             bb.Adornee = root2
             bb.Parent = workspace
             local lbl = Instance.new("TextLabel")
-            lbl.Text = "⚠ TITAN ⚠"
+            lbl.Text = "[TITAN]"
             lbl.TextScaled = true
             lbl.TextColor3 = Color3.fromRGB(255, 80, 20)
             lbl.BackgroundTransparency = 1
@@ -4957,7 +4965,7 @@ local function triggerZombieOutbreak()
                 bb.Adornee = head
                 bb.Parent = workspace
                 local lbl = Instance.new("TextLabel")
-                lbl.Text = "🧟 ZOMBIE"
+                lbl.Text = "ZOMBIE"
                 lbl.TextScaled = true
                 lbl.TextColor3 = Color3.fromRGB(80, 220, 60)
                 lbl.BackgroundTransparency = 1
@@ -5044,61 +5052,125 @@ local function triggerBeeSwarm()
     return count
 end
 
--- EVENT 14: T-Rex Attack (T-Rex model raksasa muncul)
+-- EVENT 14: T-Rex Attack (T-Rex visual proper + no lag)
 local function triggerTRexAttack()
     triggerNativeGameEvent("T-Rex Attack")
     local myRoot = getRootPart()
-    local pos = myRoot and (myRoot.Position + myRoot.CFrame.LookVector * 30) or Vector3.new(0, 5, 0)
-    -- Buat T-Rex dari Part sederhana (karena tidak bisa spawn model langsung)
-    local trex = Instance.new("Model")
-    trex.Name = "TRexAttack"
-    -- Body utama
-    local body = Instance.new("Part")
-    body.Size = Vector3.new(8, 10, 20)
-    body.Color = Color3.fromRGB(80, 120, 60)
-    body.Material = Enum.Material.SmoothPlastic
-    body.CFrame = CFrame.new(pos + Vector3.new(0, 5, 0))
-    body.Name = "Body"
-    body.Parent = trex
-    trex.PrimaryPart = body
-    -- Kepala
-    local head = Instance.new("Part")
-    head.Size = Vector3.new(5, 5, 8)
-    head.Color = Color3.fromRGB(80, 120, 60)
-    head.Material = Enum.Material.SmoothPlastic
-    head.CFrame = body.CFrame * CFrame.new(0, 3, -12)
-    head.Name = "Head"
-    head.Parent = trex
-    local weld1 = Instance.new("WeldConstraint")
-    weld1.Part0 = body; weld1.Part1 = head; weld1.Parent = body
-    trex.Parent = workspace
-    -- Efek roar
-    local roar = Instance.new("Sound")
-    roar.SoundId = "rbxassetid://1448044284"
-    roar.Volume = 3
-    roar.Parent = body
-    roar:Play()
-    -- Gerakkan T-Rex ke depan (berjalan)
-    task.spawn(function()
-        for i = 1, 30 do
+    local startPos = myRoot and (myRoot.Position + myRoot.CFrame.LookVector * 60) or Vector3.new(60, 5, 0)
+
+    -- Buat T-Rex dari Part-Part yang di-weld (lebih nyata)
+    local trexModel = Instance.new("Model")
+    trexModel.Name = "HRR_TRex"
+    trexModel.Parent = workspace
+
+    local function makePart(size, color, cframeOffset, parent)
+        local p = Instance.new("Part")
+        p.Size = size
+        p.Color = color
+        p.Material = Enum.Material.SmoothPlastic
+        p.Anchored = false
+        p.CanCollide = false
+        p.Parent = parent or trexModel
+        return p
+    end
+
+    local GREEN = Color3.fromRGB(55, 110, 50)
+    local DARKGREEN = Color3.fromRGB(40, 85, 38)
+
+    -- Tubuh utama
+    local body = makePart(Vector3.new(10, 12, 22), GREEN)
+    body.Name = "TRexBody"
+    body.Anchored = true
+    body.CFrame = CFrame.new(startPos + Vector3.new(0, 7, 0))
+    trexModel.PrimaryPart = body
+
+    -- Kepala (moncong panjang)
+    local head = makePart(Vector3.new(6, 7, 14), GREEN)
+    head.Name = "TRexHead"
+    head.CFrame = body.CFrame * CFrame.new(0, 4, -16)
+    local w1 = Instance.new("WeldConstraint"); w1.Part0=body; w1.Part1=head; w1.Parent=body
+
+    -- Rahang bawah
+    local jaw = makePart(Vector3.new(5, 2, 12), DARKGREEN)
+    jaw.CFrame = body.CFrame * CFrame.new(0, 0, -17)
+    local wj = Instance.new("WeldConstraint"); wj.Part0=body; wj.Part1=jaw; wj.Parent=body
+
+    -- Ekor panjang
+    local tail = makePart(Vector3.new(5, 6, 20), GREEN)
+    tail.CFrame = body.CFrame * CFrame.new(0, -2, 20)
+    local w2 = Instance.new("WeldConstraint"); w2.Part0=body; w2.Part1=tail; w2.Parent=body
+
+    -- Kaki depan (2)
+    local legFL = makePart(Vector3.new(3, 8, 3), DARKGREEN)
+    legFL.CFrame = body.CFrame * CFrame.new(-5, -8, -6)
+    local wfl = Instance.new("WeldConstraint"); wfl.Part0=body; wfl.Part1=legFL; wfl.Parent=body
+    local legFR = makePart(Vector3.new(3, 8, 3), DARKGREEN)
+    legFR.CFrame = body.CFrame * CFrame.new(5, -8, -6)
+    local wfr = Instance.new("WeldConstraint"); wfr.Part0=body; wfr.Part1=legFR; wfr.Parent=body
+
+    -- Kaki belakang (2 - lebih besar)
+    local legBL = makePart(Vector3.new(5, 14, 5), DARKGREEN)
+    legBL.CFrame = body.CFrame * CFrame.new(-5, -11, 6)
+    local wbl = Instance.new("WeldConstraint"); wbl.Part0=body; wbl.Part1=legBL; wbl.Parent=body
+    local legBR = makePart(Vector3.new(5, 14, 5), DARKGREEN)
+    legBR.CFrame = body.CFrame * CFrame.new(5, -11, 6)
+    local wbr = Instance.new("WeldConstraint"); wbr.Part0=body; wbr.Part1=legBR; wbr.Parent=body
+
+    -- Lengan kecil (T-Rex arms)
+    local armL = makePart(Vector3.new(2, 5, 2), DARKGREEN)
+    armL.CFrame = body.CFrame * CFrame.new(-6, 2, -6)
+    local wal = Instance.new("WeldConstraint"); wal.Part0=body; wal.Part1=armL; wal.Parent=body
+    local armR = makePart(Vector3.new(2, 5, 2), DARKGREEN)
+    armR.CFrame = body.CFrame * CFrame.new(6, 2, -6)
+    local war = Instance.new("WeldConstraint"); war.Part0=body; war.Part1=armR; war.Parent=body
+
+    -- Mata (neon merah)
+    local eyeL = makePart(Vector3.new(1.5, 1.5, 1.5), Color3.fromRGB(255, 30, 30))
+    eyeL.Material = Enum.Material.Neon
+    eyeL.CFrame = body.CFrame * CFrame.new(-2.5, 5, -22)
+    local wel = Instance.new("WeldConstraint"); wel.Part0=body; wel.Part1=eyeL; wel.Parent=body
+    local eyeR = makePart(Vector3.new(1.5, 1.5, 1.5), Color3.fromRGB(255, 30, 30))
+    eyeR.Material = Enum.Material.Neon
+    eyeR.CFrame = body.CFrame * CFrame.new(2.5, 5, -22)
+    local wer = Instance.new("WeldConstraint"); wer.Part0=body; wer.Part1=eyeR; wer.Parent=body
+
+    -- Suara roar
+    pcall(function()
+        local roar = Instance.new("Sound")
+        roar.SoundId = "rbxassetid://1448044284"
+        roar.Volume = 5
+        roar.Parent = body
+        roar:Play()
+    end)
+
+    -- Gerak T-Rex ke arah spawn (task.delay bukan loop Heartbeat = no lag)
+    local stepCount = 25
+    local stepDelay = 0.18
+    for i = 1, stepCount do
+        task.delay(i * stepDelay, function()
+            if not trexModel or not trexModel.Parent or not body or not body.Parent then return end
             pcall(function()
-                body.CFrame = body.CFrame * CFrame.new(0, 0, -1.5)
-                head.CFrame = body.CFrame * CFrame.new(0, 3, -12)
-                -- Lempar dummy yang terkena
+                body.CFrame = body.CFrame * CFrame.new(0, 0, -2.5)
+                -- Cek dummy di sekitar
                 for _, dummy in ipairs(getAllDummies()) do
                     local dRoot = dummy:FindFirstChild("HumanoidRootPart") or dummy:FindFirstChild("Torso")
-                    if dRoot and (dRoot.Position - body.Position).Magnitude < 20 then
-                        dRoot.AssemblyLinearVelocity = Vector3.new(math.random(-80, 80), 60, math.random(-80, 80))
-                        dummy:BreakJoints()
-                        local h = dummy:FindFirstChildOfClass("Humanoid")
-                        if h then h.Health = 0 end
-                        notifyKillToServer(dummy)
+                    if dRoot and (dRoot.Position - body.Position).Magnitude < 25 then
+                        pcall(function()
+                            dRoot.AssemblyLinearVelocity = Vector3.new(math.random(-100,100), 80, math.random(-100,100))
+                            dummy:BreakJoints()
+                            local h = dummy:FindFirstChildOfClass("Humanoid")
+                            if h then h.Health = 0 end
+                            notifyKillToServer(dummy)
+                        end)
                     end
                 end
             end)
-            task.wait(0.1)
-        end
-        if trex and trex.Parent then trex:Destroy() end
+        end)
+    end
+
+    -- Hancurkan setelah selesai
+    task.delay(stepCount * stepDelay + 2, function()
+        if trexModel and trexModel.Parent then trexModel:Destroy() end
     end)
     return true
 end
@@ -5151,92 +5223,241 @@ local function triggerAirstrike()
     return true
 end
 
--- EVENT 16: Tsunami (Gelombang air raksasa menyapu map)
+-- EVENT 16: Tsunami (Gelombang air raksasa visual beneran)
 local function triggerTsunami()
     triggerNativeGameEvent("Tsunami")
     local myRoot = getRootPart()
     local center = myRoot and myRoot.Position or Vector3.new(0, 0, 0)
-    -- Buat gelombang air (Part biru besar bergerak)
-    local wave = Instance.new("Part")
-    wave.Name = "TsunamiWave"
-    wave.Size = Vector3.new(300, 40, 20)
-    wave.Material = Enum.Material.Neon
-    wave.Color = Color3.fromRGB(0, 100, 220)
-    wave.Transparency = 0.3
-    wave.Anchored = false
-    wave.CanCollide = true
-    wave.CFrame = CFrame.new(center + Vector3.new(200, 15, 0))
-    wave.Parent = workspace
-    wave.AssemblyLinearVelocity = Vector3.new(-80, 0, 0)
-    -- Efek air
-    local splash = Instance.new("Smoke")
-    splash.Color = Color3.fromRGB(100, 150, 255)
-    splash.Size = 30
-    splash.RiseVelocity = 10
-    splash.Parent = wave
-    -- Lempar semua dummy saat wave menghantam
-    local conn
-    conn = RunService.Heartbeat:Connect(function()
-        if not wave or not wave.Parent then
-            if conn then conn:Disconnect() end
-            return
-        end
-        for _, dummy in ipairs(getAllDummies()) do
-            local dRoot = dummy:FindFirstChild("HumanoidRootPart") or dummy:FindFirstChild("Torso")
-            if dRoot and not dRoot.Anchored then
-                local dist = math.abs(dRoot.Position.X - wave.Position.X)
-                if dist < 25 then
-                    dRoot.AssemblyLinearVelocity = Vector3.new(-60, 30, math.random(-40, 40))
-                    dummy:BreakJoints()
-                    local h = dummy:FindFirstChildOfClass("Humanoid")
-                    if h then h.Health = 0 end
-                    notifyKillToServer(dummy)
+
+    -- Model tsunami: 3 lapis gelombang
+    local waveModel = Instance.new("Model")
+    waveModel.Name = "HRR_Tsunami"
+    waveModel.Parent = workspace
+
+    local startX = center.X + 250
+    local stepsTsunami = 40
+    local stepDelay = 0.12
+
+    -- Buat 3 lapis gelombang (depan, tengah, belakang)
+    local waveParts = {}
+    local layerOffsets = {0, 15, 30} -- Z offset
+    local layerColors = {
+        Color3.fromRGB(0, 80, 220),
+        Color3.fromRGB(0, 110, 255),
+        Color3.fromRGB(80, 160, 255),
+    }
+    local layerSizes = {
+        Vector3.new(350, 50, 25),
+        Vector3.new(350, 35, 20),
+        Vector3.new(350, 20, 15),
+    }
+    local layerTransparency = {0.2, 0.35, 0.5}
+
+    for i, zOff in ipairs(layerOffsets) do
+        local w = Instance.new("Part")
+        w.Name = "TsunamiLayer" .. i
+        w.Size = layerSizes[i]
+        w.Material = Enum.Material.Neon
+        w.Color = layerColors[i]
+        w.Transparency = layerTransparency[i]
+        w.Anchored = true
+        w.CanCollide = false
+        w.CFrame = CFrame.new(startX, center.Y + 20, center.Z + zOff)
+        w.Parent = waveModel
+        table.insert(waveParts, w)
+
+        -- Efek busa di puncak
+        local foam = Instance.new("Part")
+        foam.Size = Vector3.new(350, 8, 10)
+        foam.Material = Enum.Material.Neon
+        foam.Color = Color3.fromRGB(220, 240, 255)
+        foam.Transparency = 0.1
+        foam.Anchored = true
+        foam.CanCollide = false
+        foam.CFrame = CFrame.new(startX, center.Y + 42, center.Z + zOff - 5)
+        foam.Parent = waveModel
+        table.insert(waveParts, foam)
+    end
+
+    -- Gerakkan gelombang dengan task.delay (no Heartbeat lag)
+    for step = 1, stepsTsunami do
+        task.delay(step * stepDelay, function()
+            if not waveModel or not waveModel.Parent then return end
+            local newX = startX - (step * 6.5) -- bergerak ke kiri
+            pcall(function()
+                for _, wp in ipairs(waveParts) do
+                    if wp and wp.Parent then
+                        wp.CFrame = CFrame.new(newX, wp.Position.Y, wp.Position.Z)
+                    end
+                end
+            end)
+            -- Di titik tertentu, lempar semua dummy
+            if step >= 5 then
+                for _, dummy in ipairs(getAllDummies()) do
+                    local dRoot = dummy:FindFirstChild("HumanoidRootPart") or dummy:FindFirstChild("Torso")
+                    if dRoot and not dRoot.Anchored then
+                        local distX = math.abs(dRoot.Position.X - newX)
+                        if distX < 50 then
+                            pcall(function()
+                                dRoot.AssemblyLinearVelocity = Vector3.new(-80, 40, math.random(-50, 50))
+                                dummy:BreakJoints()
+                                local h = dummy:FindFirstChildOfClass("Humanoid")
+                                if h then h.Health = 0 end
+                                notifyKillToServer(dummy)
+                            end)
+                        end
+                    end
                 end
             end
-        end
-    end)
-    task.delay(8, function()
-        if wave and wave.Parent then wave:Destroy() end
-        if conn then conn:Disconnect() end
+        end)
+    end
+
+    -- Cleanup
+    task.delay(stepsTsunami * stepDelay + 2, function()
+        if waveModel and waveModel.Parent then waveModel:Destroy() end
     end)
     return true
 end
 
--- EVENT 17: Shark Rain (Hiu berjatuhan dari langit)
+-- EVENT 17: Shark Rain (Hiu proper visual berjatuhan dari langit)
 local function triggerSharkRain()
     triggerNativeGameEvent("Shark Rain")
     local myRoot = getRootPart()
     local center = myRoot and myRoot.Position or Vector3.new(0, 0, 0)
-    for i = 1, 6 do
-        task.delay(i * 0.5, function()
-            -- Buat "hiu" (Part lonjong abu-abu)
-            local shark = Instance.new("Part")
-            shark.Name = "FlyingShark"
-            shark.Size = Vector3.new(3, 2, 8)
-            shark.Material = Enum.Material.SmoothPlastic
-            shark.Color = Color3.fromRGB(100, 120, 140)
-            shark.CFrame = CFrame.new(center + Vector3.new(math.random(-60, 60), 150, math.random(-60, 60)))
-            shark.CanCollide = true
-            shark.Parent = workspace
-            shark.AssemblyLinearVelocity = Vector3.new(math.random(-10, 10), -100, math.random(-10, 10))
-            shark.Touched:Connect(function(hit)
-                if hit and hit ~= shark and not hit:IsDescendantOf(LocalPlayer.Character) then
-                    -- Lempar dummy
-                    local model = hit:FindFirstAncestorOfClass("Model")
-                    if model and model ~= LocalPlayer.Character then
-                        local dRoot = model:FindFirstChild("HumanoidRootPart") or model:FindFirstChild("Torso")
-                        if dRoot then
-                            dRoot.AssemblyLinearVelocity = Vector3.new(math.random(-80, 80), 60, math.random(-80, 80))
+
+    local function spawnShark(offsetX, offsetZ)
+        local sharkModel = Instance.new("Model")
+        sharkModel.Name = "HRR_Shark"
+        sharkModel.Parent = workspace
+
+        local GREY = Color3.fromRGB(90, 115, 135)
+        local LIGHTGREY = Color3.fromRGB(200, 210, 220)
+        local startPos = center + Vector3.new(offsetX, 180, offsetZ)
+
+        -- Body utama hiu (lonjong)
+        local body = Instance.new("Part")
+        body.Name = "SharkBody"
+        body.Size = Vector3.new(4, 3, 14)
+        body.Material = Enum.Material.SmoothPlastic
+        body.Color = GREY
+        body.Anchored = true
+        body.CanCollide = false
+        body.CFrame = CFrame.new(startPos)
+        body.Parent = sharkModel
+        sharkModel.PrimaryPart = body
+
+        -- Perut putih
+        local belly = Instance.new("Part")
+        belly.Size = Vector3.new(3.5, 1.5, 12)
+        belly.Color = LIGHTGREY
+        belly.Material = Enum.Material.SmoothPlastic
+        belly.Anchored = true; belly.CanCollide = false
+        belly.CFrame = body.CFrame * CFrame.new(0, -1.2, 0)
+        belly.Parent = sharkModel
+        local wb = Instance.new("WeldConstraint"); wb.Part0=body; wb.Part1=belly; wb.Parent=body
+
+        -- Sirip atas
+        local finTop = Instance.new("Part")
+        finTop.Size = Vector3.new(0.5, 5, 4)
+        finTop.Color = GREY
+        finTop.Material = Enum.Material.SmoothPlastic
+        finTop.Anchored = true; finTop.CanCollide = false
+        finTop.CFrame = body.CFrame * CFrame.new(0, 3.5, -1)
+        finTop.Parent = sharkModel
+        local wft = Instance.new("WeldConstraint"); wft.Part0=body; wft.Part1=finTop; wft.Parent=body
+
+        -- Sirip samping kiri
+        local finL = Instance.new("Part")
+        finL.Size = Vector3.new(5, 0.5, 3)
+        finL.Color = GREY
+        finL.Material = Enum.Material.SmoothPlastic
+        finL.Anchored = true; finL.CanCollide = false
+        finL.CFrame = body.CFrame * CFrame.new(-4, 0, 0)
+        finL.Parent = sharkModel
+        local wfL = Instance.new("WeldConstraint"); wfL.Part0=body; wfL.Part1=finL; wfL.Parent=body
+
+        -- Sirip samping kanan
+        local finR = Instance.new("Part")
+        finR.Size = Vector3.new(5, 0.5, 3)
+        finR.Color = GREY
+        finR.Material = Enum.Material.SmoothPlastic
+        finR.Anchored = true; finR.CanCollide = false
+        finR.CFrame = body.CFrame * CFrame.new(4, 0, 0)
+        finR.Parent = sharkModel
+        local wfR = Instance.new("WeldConstraint"); wfR.Part0=body; wfR.Part1=finR; wfR.Parent=body
+
+        -- Ekor
+        local tail = Instance.new("Part")
+        tail.Size = Vector3.new(0.5, 5, 5)
+        tail.Color = GREY
+        tail.Material = Enum.Material.SmoothPlastic
+        tail.Anchored = true; tail.CanCollide = false
+        tail.CFrame = body.CFrame * CFrame.new(0, 0, 8)
+        tail.Parent = sharkModel
+        local wt = Instance.new("WeldConstraint"); wt.Part0=body; wt.Part1=tail; wt.Parent=body
+
+        -- Mata (hitam pekat)
+        local eye = Instance.new("Part")
+        eye.Size = Vector3.new(0.6, 0.6, 0.3)
+        eye.Color = Color3.fromRGB(0,0,0)
+        eye.Material = Enum.Material.SmoothPlastic
+        eye.Anchored = true; eye.CanCollide = false
+        eye.CFrame = body.CFrame * CFrame.new(-2, 0.8, -5.5)
+        eye.Parent = sharkModel
+        local we = Instance.new("WeldConstraint"); we.Part0=body; we.Part1=eye; we.Parent=body
+
+        -- Jatuh dengan task.delay (no lag)
+        local steps = 35
+        local dropDelay = 0.08
+        local hasHit = false
+        for step = 1, steps do
+            task.delay(step * dropDelay, function()
+                if not sharkModel or not sharkModel.Parent or hasHit then return end
+                pcall(function()
+                    local newY = startPos.Y - (step * 5.5)
+                    body.CFrame = CFrame.new(startPos.X, newY, startPos.Z)
+                    -- Cek tabrakan dengan dummy
+                    if newY < center.Y + 15 then
+                        for _, dummy in ipairs(getAllDummies()) do
+                            local dRoot = dummy:FindFirstChild("HumanoidRootPart") or dummy:FindFirstChild("Torso")
+                            if dRoot then
+                                local dist = (dRoot.Position - body.Position).Magnitude
+                                if dist < 20 and not hasHit then
+                                    hasHit = true
+                                    pcall(function()
+                                        dRoot.AssemblyLinearVelocity = Vector3.new(math.random(-100,100), 80, math.random(-100,100))
+                                        dummy:BreakJoints()
+                                        local h = dummy:FindFirstChildOfClass("Humanoid")
+                                        if h then h.Health = 0 end
+                                        notifyKillToServer(dummy)
+                                    end)
+                                end
+                            end
                         end
-                        local h = model:FindFirstChildOfClass("Humanoid")
-                        if h and h.Health > 0 then
-                            h:TakeDamage(60)
-                            if h.Health <= 0 then notifyKillToServer(model) end
+                        -- Ledakan kecil saat mendarat
+                        if newY < center.Y + 5 then
+                            hasHit = true
+                            local exp = Instance.new("Explosion")
+                            exp.Position = body.Position
+                            exp.BlastRadius = 15
+                            exp.BlastPressure = 150000
+                            exp.Parent = workspace
                         end
                     end
-                end
+                end)
             end)
-            task.delay(4, function() if shark and shark.Parent then shark:Destroy() end end)
+        end
+
+        -- Cleanup
+        task.delay(steps * dropDelay + 3, function()
+            if sharkModel and sharkModel.Parent then sharkModel:Destroy() end
+        end)
+    end
+
+    -- Spawn 5 hiu dengan interval
+    for i = 1, 5 do
+        task.delay(i * 0.7, function()
+            spawnShark(math.random(-80, 80), math.random(-80, 80))
         end)
     end
     return true
@@ -5496,7 +5717,7 @@ ToggleObjects.AutoKill = FarmTab:CreateToggle({
                                 -- 3. Notifikasi Webhook jika aktif
                                 if ConfigRegistry.SendOnKo and ConfigRegistry.WebhookUrl ~= "" then
                                     sendDiscordWebhook({
-                                        title = "💀 Ragdoll Eliminated",
+                                        title = "[KO] Ragdoll Eliminated",
                                         description = "Target: **" .. dummy.Name .. "**",
                                         color = 0xFF3333,
                                         footer = { text = "Unionsal Hub • .gg/unionsal" }
@@ -5574,10 +5795,37 @@ FarmTab:CreateButton({
 FarmTab:CreateSection("Revive & Respawn Sistem")
 
 FarmTab:CreateButton({
-    Name = "Revive All Ragdoll (Bangkitkan Seluruh Ragdoll - Fitur Game)",
+    Name = "Revive All Ragdoll (R - Bangkitkan Seluruh Ragdoll)",
     Callback = function()
         local ok = triggerGameRevive()
-        Window:Notify({ Title = "Revive All", Content = ok and "Sinyal Revive game berhasil dikirim! Seluruh ragdoll dibangkitkan utuh." or "Memicu revive modul...", Duration = 3 })
+        Window:Notify({ Title = "Revive All", Content = ok and "Sinyal Revive [R] dikirim! Seluruh ragdoll dibangkitkan." or "Memicu revive fallback...", Duration = 3 })
+    end
+})
+
+FarmTab:CreateButton({
+    Name = "Scan Dummy Terdekat (V - Buka Scan Menu)",
+    Callback = function()
+        -- Simulasi V key (HRR: V = Scan Dummy)
+        pcall(function()
+            if firesignal then
+                firesignal(UserInputService.InputBegan, {KeyCode = Enum.KeyCode.V, UserInputType = Enum.UserInputType.Keyboard}, false)
+                task.wait(0.05)
+                firesignal(UserInputService.InputEnded, {KeyCode = Enum.KeyCode.V, UserInputType = Enum.UserInputType.Keyboard}, false)
+            end
+        end)
+        -- Juga coba via GUI scan button
+        pcall(function()
+            for _, gui in ipairs(LocalPlayer.PlayerGui:GetDescendants()) do
+                if gui:IsA("TextButton") or gui:IsA("ImageButton") then
+                    local n = string.lower(gui.Name)
+                    local t = gui:IsA("TextButton") and string.lower(gui.Text) or ""
+                    if string.find(n, "scan") or string.find(t, "scan") or string.find(n, "xray") then
+                        if firesignal then firesignal(gui.MouseButton1Click) end
+                    end
+                end
+            end
+        end)
+        Window:Notify({ Title = "Scan", Content = "Tombol V ditekan - Scan dummy aktif!", Duration = 2 })
     end
 })
 
@@ -5590,13 +5838,23 @@ FarmTab:CreateButton({
 })
 
 FarmTab:CreateButton({
-    Name = "Respawn Karakter (Instan)",
+    Name = "Respawn Karakter (G - Instan)",
     Callback = function()
+        -- Simulasi G key (HRR: G = Respawn Karakter)
+        pcall(function()
+            if firesignal then
+                firesignal(UserInputService.InputBegan, {KeyCode = Enum.KeyCode.G, UserInputType = Enum.UserInputType.Keyboard}, false)
+                task.wait(0.05)
+                firesignal(UserInputService.InputEnded, {KeyCode = Enum.KeyCode.G, UserInputType = Enum.UserInputType.Keyboard}, false)
+            end
+        end)
+        -- Fallback: health = 0
+        task.wait(0.1)
         local hum = getHumanoid()
-        if hum then
+        if hum and hum.Health > 0 then
             hum.Health = 0
-            Window:Notify({ Title = "Respawn", Content = "Karakter di-respawn!", Duration = 1.5 })
         end
+        Window:Notify({ Title = "Respawn", Content = "Karakter di-respawn! (Tombol G + fallback)", Duration = 1.5 })
     end
 })
 
@@ -5695,7 +5953,7 @@ EventsTab:CreateButton({
     end
 })
 
-EventsTab:CreateSection("1. Gravitasi & Cuaca Ekstrem")
+EventsTab:CreateSection("1. Gravitasi dan Cuaca Ekstrem")
 
 EventsTab:CreateToggle({
     Name = "Weightless (Gravitasi Nol / Melayang Bebas)",
@@ -5723,7 +5981,7 @@ EventsTab:CreateButton({
     end
 })
 
-EventsTab:CreateSection("2. Modifikasi Ukuran & Hujan Ragdoll")
+EventsTab:CreateSection("2. Modifikasi Ukuran dan Hujan Ragdoll")
 
 EventsTab:CreateButton({
     Name = "Falling Dummies (Jatuhkan Hujan Dummy Sekali)",
@@ -5771,7 +6029,7 @@ EventsTab:CreateButton({
     end
 })
 
-EventsTab:CreateSection("3. Bencana Kosmik & Kehancuran Massal")
+EventsTab:CreateSection("3. Bencana Kosmik dan Kehancuran Massal")
 
 EventsTab:CreateButton({
     Name = "Meteor Rain (Panggil Hujan Meteor Sekali)",
@@ -5821,7 +6079,7 @@ EventsTab:CreateToggle({
     end
 })
 
-EventsTab:CreateSection("4. Event Bencana Tambahan (Klik untuk Aktifkan)")
+EventsTab:CreateSection("4. Event Bencana Tambahan")
 
 EventsTab:CreateButton({
     Name = "Warhead (Nuklir Masif - Semua Ragdoll Hancur Seketika)",
@@ -5979,11 +6237,12 @@ local WeaponDatabase = {
     },
 }
 
--- Fungsi utama untuk memberikan senjata ke player
+-- Fungsi utama untuk memberikan senjata ke player dan auto-equip
 local function giveWeapon(weaponName, slot)
     local hum = getHumanoid()
     local myRoot = getRootPart()
-    if not hum or not myRoot then
+    local char = getCharacter()
+    if not hum or not myRoot or not char then
         Window:Notify({ Title = "Error", Content = "Karakter belum siap.", Duration = 2 })
         return false
     end
@@ -6109,17 +6368,111 @@ local function giveWeapon(weaponName, slot)
         end)
     end
 
+    -- Pastikan tool di-equip ke tangan dan script di dalamnya aktif
+    task.defer(function()
+        task.wait(0.1)
+        local toolToEquip = nil
+        for _, item in ipairs(LocalPlayer.Backpack:GetChildren()) do
+            if item:IsA("Tool") and (string.find(string.lower(item.Name), string.lower(weaponName)) or item.Name == weaponName) then
+                toolToEquip = item
+                break
+            end
+        end
+        if not toolToEquip and char then
+            for _, item in ipairs(char:GetChildren()) do
+                if item:IsA("Tool") and (string.find(string.lower(item.Name), string.lower(weaponName)) or item.Name == weaponName) then
+                    toolToEquip = item
+                    break
+                end
+            end
+        end
+        if toolToEquip then
+            -- Aktifkan semua script dalam tool jika nonaktif
+            for _, scr in ipairs(toolToEquip:GetDescendants()) do
+                if scr:IsA("LocalScript") and scr.Disabled then
+                    scr.Disabled = false
+                end
+            end
+            toolToEquip.Enabled = true
+            toolToEquip.RequiresHandle = false
+            if hum and toolToEquip.Parent == LocalPlayer.Backpack then
+                hum:EquipTool(toolToEquip)
+            end
+            got = true
+        end
+    end)
+
     if got then
-        Window:Notify({ Title = "Senjata Diberikan", Content = weaponName .. " berhasil diambil ke inventory!", Duration = 2.5 })
+        Window:Notify({ Title = "Senjata Diberikan", Content = weaponName .. " berhasil diambil & di-equip!", Duration = 2.5 })
     else
-        Window:Notify({ Title = "Tidak Ditemukan", Content = weaponName .. " tidak ada di game saat ini.", Duration = 2.5 })
+        Window:Notify({ Title = "Senjata Dicoba", Content = "Meminta " .. weaponName .. " ke server...", Duration = 2.5 })
     end
     return got
 end
 
+-- Listener klik mouse untuk menembak / mengayun senjata 100% aktif
+local weaponClickConn = nil
+if not getgenv()._UNIONSAL_WEAPON_CLICK then
+    getgenv()._UNIONSAL_WEAPON_CLICK = true
+    UserInputService.InputBegan:Connect(function(input, gpe)
+        if gpe then return end
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            local ch = LocalPlayer.Character
+            local currentTool = ch and ch:FindFirstChildOfClass("Tool")
+            if currentTool then
+                pcall(function() currentTool:Activate() end)
+                -- Fallback damage raycast jika script bawaan senjata di-block
+                task.defer(function()
+                    local mouse = LocalPlayer:GetMouse()
+                    local targetPart = mouse and mouse.Target
+                    if targetPart and targetPart.Parent and targetPart.Parent ~= ch then
+                        local dHum = targetPart.Parent:FindFirstChildOfClass("Humanoid")
+                        if dHum then
+                            dHum:TakeDamage(45)
+                            if dHum.Health <= 0 then
+                                notifyKillToServer(targetPart.Parent)
+                            end
+                        end
+                    end
+                end)
+            end
+        end
+    end)
+end
+
 -- Buat Weapons Tab
-local WeaponsTab = Window:CreateTab("Senjata", "sword", "Main")
-WeaponsTab:CreateSection("Status Slot Senjata (Maks 10 Slot)")
+-- ═══════════════════════════════════════════
+--  SENJATA TAB (Dropdown per Kategori, Sidebar Sendiri)
+-- ═══════════════════════════════════════════
+-- Tab utama Senjata (sidebar: group "Senjata")
+local WeaponsTab    = Window:CreateTab("Senjata",     "sword",   "Senjata")
+local WeaponsMelee  = Window:CreateTab("Melee",       "sword",   "Senjata")
+local WeaponsGuns   = Window:CreateTab("Guns",        "target",  "Senjata")
+local WeaponsThrow  = Window:CreateTab("Lempar",      "star",    "Senjata")
+local WeaponsPower  = Window:CreateTab("Power",       "zap",     "Senjata")
+local WeaponsMedic  = Window:CreateTab("Medic",       "heart",   "Senjata")
+local WeaponsRobux  = Window:CreateTab("Premium",     "diamond", "Senjata")
+
+-- ── Helper: build daftar nama senjata per kategori
+local function buildWeaponOptions(category)
+    local opts = {}
+    for _, wep in ipairs(WeaponDatabase[category]) do
+        local lbl = wep.robux and ("[R$] " .. wep.name) or wep.name
+        table.insert(opts, lbl)
+    end
+    return opts
+end
+
+local function getWeaponByLabel(category, label)
+    for _, wep in ipairs(WeaponDatabase[category]) do
+        local lbl = wep.robux and ("[R$] " .. wep.name) or wep.name
+        if lbl == label then return wep end
+    end
+    return nil
+end
+
+-- ── Tab Overview Senjata
+WeaponsTab:CreateSection("Status Inventory Senjata")
 
 WeaponsTab:CreateButton({
     Name = "Lihat Slot Senjata Aktif",
@@ -6128,29 +6481,27 @@ WeaponsTab:CreateButton({
         local tools = {}
         if char then
             for _, item in ipairs(char:GetChildren()) do
-                if item:IsA("Tool") then table.insert(tools, "[Dipegang] " .. item.Name) end
+                if item:IsA("Tool") then table.insert(tools, "[Pegang] "..item.Name) end
             end
         end
         for _, item in ipairs(LocalPlayer.Backpack:GetChildren()) do
-            if item:IsA("Tool") then table.insert(tools, "[Backpack] " .. item.Name) end
+            if item:IsA("Tool") then table.insert(tools, "[Pack] "..item.Name) end
         end
-        local msg = #tools > 0 and table.concat(tools, ", ") or "Tidak ada senjata di inventory."
-        Window:Notify({ Title = "Slot Senjata (" .. #tools .. "/10)", Content = msg, Duration = 6 })
+        local msg = #tools > 0 and table.concat(tools, " | ") or "Inventory kosong."
+        Window:Notify({ Title = "Slot ("..#tools.."/10)", Content = msg, Duration = 7 })
     end
 })
 
 WeaponsTab:CreateButton({
     Name = "Drop Semua Senjata (Kosongkan Inventory)",
     Callback = function()
-        local char = getCharacter()
-        local myRoot = getRootPart()
-        local count = 0
+        local char = getCharacter(); local myRoot = getRootPart(); local count = 0
         if char and myRoot then
             for _, item in ipairs(char:GetChildren()) do
                 if item:IsA("Tool") then
                     item.Parent = workspace
                     local h = item:FindFirstChild("Handle") or item:FindFirstChildWhichIsA("BasePart")
-                    if h then h.CFrame = myRoot.CFrame * CFrame.new(math.random(-3,3), 0, math.random(-3,3)) end
+                    if h then h.CFrame = myRoot.CFrame * CFrame.new(math.random(-4,4), 0, math.random(-4,4)) end
                     count = count + 1
                 end
             end
@@ -6159,94 +6510,156 @@ WeaponsTab:CreateButton({
             if item:IsA("Tool") then
                 item.Parent = workspace
                 local h = item:FindFirstChild("Handle") or item:FindFirstChildWhichIsA("BasePart")
-                if h and myRoot then h.CFrame = myRoot.CFrame * CFrame.new(math.random(-3,3), 0, math.random(-3,3)) end
+                if h and myRoot then h.CFrame = myRoot.CFrame * CFrame.new(math.random(-4,4), 0, math.random(-4,4)) end
                 count = count + 1
             end
         end
-        Window:Notify({ Title = "Drop Senjata", Content = count .. " senjata dibuang ke lantai.", Duration = 2 })
+        Window:Notify({ Title = "Drop Senjata", Content = count.." senjata dibuang ke lantai.", Duration = 2 })
     end
 })
 
--- Kategori: MELEE
-WeaponsTab:CreateSection("⚔ Melee (Senjata Jarak Dekat)")
-for _, wep in ipairs(WeaponDatabase.Melee) do
-    local label = wep.robux and ("[R$] " .. wep.name) or wep.name
-    WeaponsTab:CreateButton({
-        Name = label,
-        Callback = function()
-            giveWeapon(wep.name, wep.slot)
-        end
-    })
-end
-
--- Kategori: GUNS
-WeaponsTab:CreateSection("🔫 Guns (Senjata Api)")
-for _, wep in ipairs(WeaponDatabase.Guns) do
-    local label = wep.robux and ("[R$] " .. wep.name) or wep.name
-    WeaponsTab:CreateButton({
-        Name = label,
-        Callback = function()
-            giveWeapon(wep.name, wep.slot)
-        end
-    })
-end
-
--- Kategori: THROW
-WeaponsTab:CreateSection("💣 Throw (Senjata Lempar)")
-for _, wep in ipairs(WeaponDatabase.Throw) do
-    local label = wep.robux and ("[R$] " .. wep.name) or wep.name
-    WeaponsTab:CreateButton({
-        Name = label,
-        Callback = function()
-            giveWeapon(wep.name, wep.slot)
-        end
-    })
-end
-
--- Kategori: POWER
-WeaponsTab:CreateSection("⚡ Power (Senjata Super / Special)")
-for _, wep in ipairs(WeaponDatabase.Power) do
-    local label = wep.robux and ("[R$] " .. wep.name) or wep.name
-    WeaponsTab:CreateButton({
-        Name = label,
-        Callback = function()
-            giveWeapon(wep.name, wep.slot)
-        end
-    })
-end
-
--- Kategori: MEDIC
-WeaponsTab:CreateSection("🏥 Medic (Alat Medis)")
-for _, wep in ipairs(WeaponDatabase.Medic) do
-    WeaponsTab:CreateButton({
-        Name = wep.name,
-        Callback = function()
-            giveWeapon(wep.name, wep.slot)
-        end
-    })
-end
-
--- Kategori: ROBUX (Premium Weapons)
-WeaponsTab:CreateSection("💎 Robux Premium (Unlock Langsung)")
 WeaponsTab:CreateParagraph({
-    Title = "Info Senjata Premium",
-    Content = "Senjata bertanda [R$] biasanya membutuhkan Robux di game. Script ini mencoba unlock & memberikan senjata tersebut tanpa perlu beli dengan cara bypass ToolController & RemoteEvent game."
+    Title = "Cara Pakai Senjata",
+    Content = "Pilih kategori di sidebar kiri (Melee / Guns / Lempar / Power / Medic / Premium), lalu pilih senjata dari dropdown dan klik Equip. Jika slot penuh, slot lama otomatis di-drop."
 })
-for _, wep in ipairs(WeaponDatabase.Robux) do
-    WeaponsTab:CreateButton({
-        Name = "[R$ UNLOCK] " .. wep.name,
-        Callback = function()
-            -- Coba set atribut unlock terlebih dulu
-            pcall(function()
-                local attrName = "Unlocked_" .. wep.name:gsub("%s+", "_")
-                LocalPlayer:SetAttribute(attrName, true)
-                LocalPlayer:SetAttribute("HRR_Premium", true)
-                LocalPlayer:SetAttribute("HRR_Robux", 999999)
-            end)
-            giveWeapon(wep.name, wep.slot)
-        end
-    })
-end
+
+-- ── MELEE TAB
+WeaponsMelee:CreateSection("Melee - Senjata Jarak Dekat")
+local selectedMelee = WeaponDatabase.Melee[1].name
+WeaponsMelee:CreateDropdown({
+    Name = "Pilih Senjata Melee",
+    Options = buildWeaponOptions("Melee"),
+    Callback = function(opt)
+        local wep = getWeaponByLabel("Melee", opt)
+        if wep then selectedMelee = wep.name end
+    end
+})
+WeaponsMelee:CreateButton({
+    Name = "Equip Senjata Melee Dipilih",
+    Callback = function()
+        giveWeapon(selectedMelee, 1)
+    end
+})
+WeaponsMelee:CreateParagraph({
+    Title = "Daftar Melee (14 senjata)",
+    Content = "Fists | Bat | Axe | Hammer | Shovel | Wrench | Crowbar | Machete | Sword | [R$] Katana | Cleaver | [R$] Chainsaw | Sledgehammer | Spear"
+})
+
+-- ── GUNS TAB
+WeaponsGuns:CreateSection("Guns - Senjata Api")
+local selectedGun = WeaponDatabase.Guns[1].name
+WeaponsGuns:CreateDropdown({
+    Name = "Pilih Senjata Api",
+    Options = buildWeaponOptions("Guns"),
+    Callback = function(opt)
+        local wep = getWeaponByLabel("Guns", opt)
+        if wep then selectedGun = wep.name end
+    end
+})
+WeaponsGuns:CreateButton({
+    Name = "Equip Senjata Api Dipilih",
+    Callback = function()
+        giveWeapon(selectedGun, 2)
+    end
+})
+WeaponsGuns:CreateParagraph({
+    Title = "Daftar Guns (14 senjata)",
+    Content = "Pistol | Revolver | Shotgun | SMG | Rifle | Sniper | LMG | Crossbow | Flintlock | [R$] Minigun | [R$] Railgun | [R$] Flamethrower | [R$] Laser | Paintball Gun"
+})
+
+-- ── THROW TAB
+WeaponsThrow:CreateSection("Lempar - Senjata Lempar")
+local selectedThrow = WeaponDatabase.Throw[1].name
+WeaponsThrow:CreateDropdown({
+    Name = "Pilih Senjata Lempar",
+    Options = buildWeaponOptions("Throw"),
+    Callback = function(opt)
+        local wep = getWeaponByLabel("Throw", opt)
+        if wep then selectedThrow = wep.name end
+    end
+})
+WeaponsThrow:CreateButton({
+    Name = "Equip Senjata Lempar Dipilih",
+    Callback = function()
+        giveWeapon(selectedThrow, 3)
+    end
+})
+WeaponsThrow:CreateParagraph({
+    Title = "Daftar Lempar (12 senjata)",
+    Content = "Rock | Grenade | Molotov | Flashbang | Smoke Grenade | Dynamite | Throwing Knife | Tomahawk | [R$] Shuriken | Firework | [R$] C4 | Frag Grenade"
+})
+
+-- ── POWER TAB
+WeaponsPower:CreateSection("Power - Senjata Super / Special")
+local selectedPower = WeaponDatabase.Power[1].name
+WeaponsPower:CreateDropdown({
+    Name = "Pilih Senjata Power",
+    Options = buildWeaponOptions("Power"),
+    Callback = function(opt)
+        local wep = getWeaponByLabel("Power", opt)
+        if wep then selectedPower = wep.name end
+    end
+})
+WeaponsPower:CreateButton({
+    Name = "Equip Senjata Power Dipilih",
+    Callback = function()
+        giveWeapon(selectedPower, 4)
+    end
+})
+WeaponsPower:CreateParagraph({
+    Title = "Daftar Power (13 senjata)",
+    Content = "Gravity Gun | Freeze Ray | Lightning Rod | [R$] Black Hole Gun | [R$] Tornado Gun | [R$] Shrink Ray | [R$] Grow Ray | Magnet Gun | [R$] Portal Gun | Wind Gun | [R$] Nuke Launcher | Taser | EMP"
+})
+
+-- ── MEDIC TAB
+WeaponsMedic:CreateSection("Medic - Alat Medis")
+local selectedMedic = WeaponDatabase.Medic[1].name
+WeaponsMedic:CreateDropdown({
+    Name = "Pilih Alat Medis",
+    Options = buildWeaponOptions("Medic"),
+    Callback = function(opt)
+        local wep = getWeaponByLabel("Medic", opt)
+        if wep then selectedMedic = wep.name end
+    end
+})
+WeaponsMedic:CreateButton({
+    Name = "Equip Alat Medis Dipilih",
+    Callback = function()
+        giveWeapon(selectedMedic, 5)
+    end
+})
+WeaponsMedic:CreateParagraph({
+    Title = "Daftar Medic (8 alat)",
+    Content = "Defibrillator | Medkit | Bandage | Syringe | Scanner | Blood Bag | AED | Splint"
+})
+
+-- ── ROBUX/PREMIUM TAB
+WeaponsRobux:CreateSection("Premium - Senjata Robux (Bypass Unlock)")
+WeaponsRobux:CreateParagraph({
+    Title = "Info Premium",
+    Content = "Senjata [R$] di game butuh Robux. Script ini bypass ToolController & RemoteEvent untuk memberi senjata tanpa beli. Pilih dari dropdown lalu klik Unlock."
+})
+local selectedRobux = WeaponDatabase.Robux[1].name
+WeaponsRobux:CreateDropdown({
+    Name = "Pilih Senjata Premium",
+    Options = buildWeaponOptions("Robux"),
+    Callback = function(opt)
+        local wep = getWeaponByLabel("Robux", opt)
+        if wep then selectedRobux = wep.name end
+    end
+})
+WeaponsRobux:CreateButton({
+    Name = "Unlock + Equip Senjata Premium",
+    Callback = function()
+        pcall(function()
+            local attrName = "Unlocked_" .. selectedRobux:gsub("%s+", "_")
+            LocalPlayer:SetAttribute(attrName, true)
+            LocalPlayer:SetAttribute("HRR_Premium", true)
+            LocalPlayer:SetAttribute("HRR_Robux", 999999)
+        end)
+        giveWeapon(selectedRobux, 1)
+    end
+})
 
 
 -- ╔═══════════════════════════════════════════╗
@@ -6593,17 +7006,7 @@ ToggleObjects.AntiAfk = PlayerTab:CreateToggle({
     end
 })
 
-PlayerTab:CreateButton({
-    Name = "Salin Koordinat Posisi Saat Ini",
-    Callback = function()
-        local r = getRootPart()
-        if r then
-            local posStr = string.format("%.1f, %.1f, %.1f", r.Position.X, r.Position.Y, r.Position.Z)
-            if setclipboard then setclipboard(posStr) end
-            Window:Notify({ Title = "Posisi", Content = "Koordinat disalin: " .. posStr, Duration = 3 })
-        end
-    end
-})
+-- (Salin Koordinat dipindah ke tab Teleport)
 
 PlayerTab:CreateButton({
     Name = "Reset Karakter / Respawn",
@@ -6622,22 +7025,145 @@ PlayerTab:CreateButton({
 -- ║  TAB 4: TELEPORT                          ║
 -- ╚═══════════════════════════════════════════╝
 local TpTab = Window:CreateTab("Teleport", "navigation", "Main")
-TpTab:CreateSection("Lokasi Penting Map")
+
+-- Helper: scan map untuk lokasi
+local function findMapLocation(keywords)
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("BasePart") or obj:IsA("Model") then
+            local n = string.lower(obj.Name)
+            for _, kw in ipairs(keywords) do
+                if string.find(n, kw) then
+                    if obj:IsA("BasePart") then return obj.CFrame end
+                    if obj:IsA("Model") and obj.PrimaryPart then return obj.PrimaryPart.CFrame end
+                    if obj:IsA("Model") then
+                        local p = obj:FindFirstChildWhichIsA("BasePart")
+                        if p then return p.CFrame end
+                    end
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local function tpTo(cf, label)
+    local root = getRootPart()
+    if not root then
+        Window:Notify({ Title = "Error", Content = "Karakter belum siap.", Duration = 2 })
+        return
+    end
+    if cf then
+        root.CFrame = cf + Vector3.new(0, 5, 0)
+        Window:Notify({ Title = "Teleport", Content = "Tiba di: " .. label, Duration = 2 })
+    else
+        Window:Notify({ Title = "Tidak Ditemukan", Content = label .. " tidak ada di map saat ini.", Duration = 2 })
+    end
+end
+
+-- ── Lokasi Map HRR
+TpTab:CreateSection("Lokasi Map Utama")
 
 TpTab:CreateButton({
-    Name = "Teleport ke Kipas Raksasa (The Big Fan)",
+    Name = "Spawn (Titik Lahir)",
     Callback = function()
         local root = getRootPart()
-        local fanCf = findBigFan()
-        if root and fanCf then
-            root.CFrame = fanCf + Vector3.new(0, 10, 0)
-            Window:Notify({ Title = "Teleport", Content = "Tiba di area Kipas Raksasa!", Duration = 2 })
-        end
+        local sp = workspace:FindFirstChildWhichIsA("SpawnLocation", true)
+        tpTo((sp and sp.CFrame) or CFrame.new(0, 10, 0), "Spawn Point")
     end
 })
 
 TpTab:CreateButton({
-    Name = "Teleport ke Kerumunan Dummy Terbanyak",
+    Name = "Kipas Raksasa (The Big Fan)",
+    Callback = function()
+        local fanCf = findBigFan()
+        if type(fanCf) == "userdata" then tpTo(fanCf, "Kipas Raksasa")
+        else tpTo(CFrame.new(fanCf.Position), "Kipas Raksasa") end
+    end
+})
+
+TpTab:CreateButton({
+    Name = "Pusat Map (Center / 0,0,0)",
+    Callback = function()
+        tpTo(CFrame.new(0, 15, 0), "Pusat Map (0,0,0)")
+    end
+})
+
+TpTab:CreateButton({
+    Name = "Area Void (Bawah Map)",
+    Callback = function()
+        tpTo(CFrame.new(0, -150, 0), "Area Void")
+    end
+})
+
+TpTab:CreateButton({
+    Name = "Langit Tinggi (Sky High)",
+    Callback = function()
+        tpTo(CFrame.new(0, 500, 0), "Langit Tinggi (Y=500)")
+    end
+})
+
+TpTab:CreateSection("Lokasi Scan dari Map")
+
+TpTab:CreateButton({
+    Name = "Area Medis / Hospital",
+    Callback = function()
+        local cf = findMapLocation({"medic","hospital","clinic","ambulan","healt","infirmary"})
+        tpTo(cf, "Area Medis")
+    end
+})
+
+TpTab:CreateButton({
+    Name = "Area Senjata / Weapon Room",
+    Callback = function()
+        local cf = findMapLocation({"weapon","armory","gun","ammo","arsenal","rack","locker"})
+        tpTo(cf, "Area Senjata")
+    end
+})
+
+TpTab:CreateButton({
+    Name = "Area Dummy / Crowd Zone",
+    Callback = function()
+        local cf = findMapLocation({"crowd","dummy","dummies","npc","ragdoll","zombie"})
+        tpTo(cf, "Area Dummy")
+    end
+})
+
+TpTab:CreateButton({
+    Name = "Area Air / Water Zone",
+    Callback = function()
+        local cf = findMapLocation({"water","pool","lake","ocean","river","swim","beach"})
+        tpTo(cf, "Area Air")
+    end
+})
+
+TpTab:CreateButton({
+    Name = "Area Terbuka Luas (Outdoor)",
+    Callback = function()
+        local cf = findMapLocation({"field","outdoor","grass","park","plaza","court","open"})
+        tpTo(cf, "Area Outdoor")
+    end
+})
+
+TpTab:CreateButton({
+    Name = "Area Gedung / Building",
+    Callback = function()
+        local cf = findMapLocation({"building","floor","office","room","hall","warehouse","basement"})
+        tpTo(cf, "Area Gedung")
+    end
+})
+
+TpTab:CreateButton({
+    Name = "Platform / Stage / Arena",
+    Callback = function()
+        local cf = findMapLocation({"stage","arena","platform","ring","cage","pit"})
+        tpTo(cf, "Stage/Arena")
+    end
+})
+
+TpTab:CreateSection("Teleport ke Dummy")
+
+TpTab:CreateButton({
+    Name = "Teleport ke Dummy Hidup Acak",
     Callback = function()
         local dummies = getLivingDummies()
         local root = getRootPart()
@@ -6646,23 +7172,53 @@ TpTab:CreateButton({
             local tRoot = target:FindFirstChild("HumanoidRootPart") or target:FindFirstChild("Torso")
             if tRoot then
                 root.CFrame = tRoot.CFrame * CFrame.new(0, 0, 4)
-                Window:Notify({ Title = "Teleport", Content = "Tiba di dekat dummy!", Duration = 2 })
+                Window:Notify({ Title = "Teleport", Content = "Tiba di dekat dummy: " .. target.Name, Duration = 2 })
             end
+        else
+            Window:Notify({ Title = "Teleport", Content = "Tidak ada dummy hidup di map.", Duration = 2 })
         end
     end
 })
 
 TpTab:CreateButton({
-    Name = "Teleport ke Spawn Asli",
+    Name = "Teleport ke SEMUA Dummy (Kumpulkan ke Satu Titik)",
     Callback = function()
         local root = getRootPart()
-        local sp = workspace:FindFirstChildWhichIsA("SpawnLocation", true)
-        if root then
-            root.CFrame = (sp and (sp.CFrame + Vector3.new(0, 4, 0))) or CFrame.new(0, 10, 0)
-            Window:Notify({ Title = "Teleport", Content = "Kembali ke spawn point.", Duration = 2 })
+        if not root then return end
+        local count = 0
+        for _, dummy in ipairs(getAllDummies()) do
+            local dRoot = dummy:FindFirstChild("HumanoidRootPart") or dummy:FindFirstChild("Torso")
+            if dRoot and not dRoot.Anchored then
+                dRoot.CFrame = root.CFrame * CFrame.new(math.random(-8,8), 0, math.random(-8,8))
+                count = count + 1
+            end
         end
+        Window:Notify({ Title = "Kumpulkan Dummy", Content = count .. " dummy dikumpulkan ke posisimu!", Duration = 2 })
     end
 })
+
+TpTab:CreateButton({
+    Name = "Teleport ke Kipas - Semua Dummy (Mass Fan Throw)",
+    Callback = function()
+        local fanCf = findBigFan()
+        if not fanCf then fanCf = CFrame.new(0, 50, 0) end
+        local count = 0
+        for _, dummy in ipairs(getAllDummies()) do
+            local dRoot = dummy:FindFirstChild("HumanoidRootPart") or dummy:FindFirstChild("Torso")
+            if dRoot and not dRoot.Anchored then
+                if type(fanCf) == "userdata" and fanCf.Position then
+                    dRoot.CFrame = CFrame.new(fanCf.Position + Vector3.new(math.random(-3,3), 2, math.random(-3,3)))
+                else
+                    dRoot.CFrame = fanCf + Vector3.new(math.random(-3,3), 2, math.random(-3,3))
+                end
+                count = count + 1
+            end
+        end
+        Window:Notify({ Title = "Fan Throw", Content = count .. " dummy dilempar ke Kipas Raksasa!", Duration = 3 })
+    end
+})
+
+TpTab:CreateSection("Teleport ke Player")
 
 local function getPlayerNames()
     local names = {}
@@ -6690,6 +7246,55 @@ TpTab:CreateButton({
                 myRoot.CFrame = target.Character.HumanoidRootPart.CFrame + Vector3.new(3, 0, 0)
                 Window:Notify({ Title = "Teleport", Content = "Teleport ke " .. selPlr, Duration = 2 })
             end
+        end
+    end
+})
+
+TpTab:CreateButton({
+    Name = "Panggil Player ke Posisiku",
+    Callback = function()
+        local myRoot = getRootPart()
+        if not myRoot or not selPlr or selPlr == "(tidak ada player lain)" then return end
+        local target = Players:FindFirstChild(selPlr)
+        if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+            target.Character.HumanoidRootPart.CFrame = myRoot.CFrame + Vector3.new(3, 0, 0)
+            Window:Notify({ Title = "Panggil Player", Content = selPlr .. " dipanggil ke posisimu!", Duration = 2 })
+        end
+    end
+})
+
+TpTab:CreateSection("Koordinat Custom")
+
+local customX, customY, customZ = 0, 10, 0
+TpTab:CreateInput({
+    Name = "X Koordinat",
+    PlaceholderText = "0",
+    Callback = function(val) customX = tonumber(val) or 0 end
+})
+TpTab:CreateInput({
+    Name = "Y Koordinat",
+    PlaceholderText = "10",
+    Callback = function(val) customY = tonumber(val) or 10 end
+})
+TpTab:CreateInput({
+    Name = "Z Koordinat",
+    PlaceholderText = "0",
+    Callback = function(val) customZ = tonumber(val) or 0 end
+})
+TpTab:CreateButton({
+    Name = "Teleport ke Koordinat Custom",
+    Callback = function()
+        tpTo(CFrame.new(customX, customY, customZ), string.format("(%d, %d, %d)", customX, customY, customZ))
+    end
+})
+TpTab:CreateButton({
+    Name = "Salin Koordinat Saat Ini",
+    Callback = function()
+        local r = getRootPart()
+        if r then
+            local posStr = string.format("%.1f, %.1f, %.1f", r.Position.X, r.Position.Y, r.Position.Z)
+            if setclipboard then setclipboard(posStr) end
+            Window:Notify({ Title = "Koordinat", Content = "Disalin: " .. posStr, Duration = 3 })
         end
     end
 })
@@ -6973,7 +7578,7 @@ ConfigsTab:CreateButton({
     Name = "Kirim Pesan Uji Coba (Test Webhook)",
     Callback = function()
         local embed = {
-            title = "⚡ Unionsal Hub v1.3 • Webhook Connected",
+            title = "Unionsal Hub v1.3 • Webhook Connected",
             description = "Webhook berhasil terhubung dengan client Roblox!",
             color = 8864235,
             fields = {
