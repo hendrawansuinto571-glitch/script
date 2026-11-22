@@ -425,12 +425,7 @@ local function clearGravesAndGuns()
     return count
 end
 
-# scratch/test_events_code.py
-import re
 
-print("Testing Events tab generator...")
-
-events_code = '''
 -- ═══════════════════════════════════════════
 --  SISTEM BENCANA & GAME EVENTS (ALL 9 EVENTS)
 -- ═══════════════════════════════════════════
@@ -783,7 +778,6 @@ local function toggleTornado(enable)
                     local offset = dRoot.Position - tornadoCenter.Position
                     local dist = offset.Magnitude
                     if dist < 90 then
-                        -- Gaya pusaran spiral melingkar + tarikan ke atas
                         local tangent = Vector3.new(-offset.Z, 0, offset.X).Unit
                         local inward = -offset.Unit
                         local upward = Vector3.new(0, 1, 0)
@@ -819,7 +813,6 @@ local function toggleBlackHole(enable)
         blackHoleCenter.Position = pos
         blackHoleCenter.Parent = workspace
 
-        -- Accretion Disk (Cincin Emas Menyala)
         local ring = Instance.new("SelectionBox")
         ring.Adornee = blackHoleCenter
         ring.Color3 = Color3.fromRGB(255, 160, 40)
@@ -857,7 +850,6 @@ local function stopAllActiveEvents()
     GameEvents.FallingDummiesLoop = false
     GameEvents.MeteorRainLoop = false
 
-    -- Hapus efek api, smoke, es, gravitasi
     for _, dummy in ipairs(getAllDummies()) do
         pcall(function()
             for _, obj in ipairs(dummy:GetDescendants()) do
@@ -872,14 +864,7 @@ local function stopAllActiveEvents()
         end)
     end
 end
-'''
 
-print("Events code defined, length:", len(events_code))
-'''
-print("Done writing scratch test.")
-'''
-with open(r'C:\Users\MarvinDIrly\.gemini\antigravity\brain\675f2a7b-04a2-468c-98a5-ba01bca713d7\scratch\test_events_code.py', 'w', encoding='utf-8') as f:
-    f.write(events_code)
 
 -- ═══════════════════════════════════════════
 --  DEVICE ID RESOLVER & CONFIG MANAGER
@@ -1093,6 +1078,12 @@ local function applyFpsBoost(enable)
     end
 end
 
+-- Forward-declare sendDiscordWebhook (defined fully in Configs tab below)
+local sendDiscordWebhook
+local webhookUrl = ""
+local sendOnExec = true
+local sendOnKo = true
+
 -- ╔═══════════════════════════════════════════╗
 -- ║  TAB 1: DUMMIES & KO (AUTO FARM)          ║
 -- ╚═══════════════════════════════════════════╝
@@ -1127,7 +1118,12 @@ ToggleObjects.AutoKill = FarmTab:CreateToggle({
 
                                 -- 3. Notifikasi Webhook jika aktif
                                 if ConfigRegistry.SendOnKo and ConfigRegistry.WebhookUrl ~= "" then
-                                    sendDiscordWebhook("💀 Ragdoll Eliminated: " .. dummy.Name, 0xFF3333)
+                                    sendDiscordWebhook({
+                                        title = "💀 Ragdoll Eliminated",
+                                        description = "Target: **" .. dummy.Name .. "**",
+                                        color = 0xFF3333,
+                                        footer = { text = "Unionsal Hub • .gg/unionsal" }
+                                    })
                                 end
 
                                 task.wait(RagdollGame.KillDelay)
@@ -2111,10 +2107,6 @@ SettingsTab:CreateButton({
 -- ╚═══════════════════════════════════════════╝
 local ConfigsTab = Window:CreateTab("Configs", "folder", "Config")
 ConfigsTab:CreateSection("Discord Webhook Integration")
-
-local webhookUrl = ""
-local sendOnExec = true
-local sendOnKo = true
 
 InputObjects.WebhookUrl = ConfigsTab:CreateInput({
     Name = "Discord Webhook URL",
