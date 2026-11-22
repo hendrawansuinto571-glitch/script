@@ -71,7 +71,6 @@ local WinSystem = {
     LastDetectedName   = "Belum terdeteksi",
 }
 
--- Blacklist part yang BUKAN Win (termasuk TeleportPart void-reset, killbrick, spawn)
 local IGNORE_KEYWORDS = {
     "teleportpart", "spawn", "spawnlocation", "baseplate", "terrain",
     "kill", "lava", "void", "dead", "fall", "reset", "hazard", "trap", "hurt"
@@ -87,7 +86,6 @@ local function isIgnoredPart(name)
     return false
 end
 
--- Deteksi Spawn Asli
 local function getSpawnPosition()
     if WinSystem.SpawnCFrame then
         return WinSystem.SpawnCFrame.Position
@@ -99,103 +97,322 @@ local function getSpawnPosition()
     return Vector3.new(0, 5, 0)
 end
 
--- Cari Part Win / Ujung Obby yang Sebenarnya
 local function findWinPart()
-    -- 1. Jika pengguna sudah menyimpan posisi manual, utamakan itu
     if WinSystem.CustomWinCFrame then
-        WinSystem.LastDetectedName = "Posisi Manual Tersimpan"
-        return nil, WinSystem.CustomWinCFrame, WinSystem.LastDetectedName
+        return nil, WinSystem.CustomWinCFrame, "Titik Kustom Pengguna"
     end
 
-    -- 2. Cek apakah ada Checkpoints / Stages dengan nomor tertinggi
-    local folderNames = {"Checkpoints", "Stages", "Stage", "Spawns", "Obby", "Pads"}
-    for _, fn in ipairs(folderNames) do
-        local folder = workspace:FindFirstChild(fn, true)
-        if folder then
-            local highestNum = -1
+    local candidatePart = nil
+    local candidateCFrame = nil
+    local candidateName = nil
+
+    -- 1. Scan folder stages / checkpoints
+    for _, folderName in ipairs({"Checkpoints", "Stages", "Stage", "Spawns"}) do
+        local f = workspace:FindFirstChild(folderName, true)
+        if f then
+            local highestNumber = -1
             local highestPart = nil
-            for _, child in ipairs(folder:GetChildren()) do
-                local num = tonumber(string.match(child.Name, "%d+"))
-                if num and num > highestNum then
-                    local p = (child:IsA("BasePart") and child) or child:FindFirstChildWhichIsA("BasePart")
+            for _, item in ipairs(f:GetChildren()) do
+                local num = tonumber(string.match(item.Name, "%d+"))
+                if num and num > highestNumber then
+                    local p = (item:IsA("BasePart") and item) or item:FindFirstChildWhichIsA("BasePart")
                     if p and not isIgnoredPart(p.Name) then
-                        highestNum = num
+                        highestNumber = num
                         highestPart = p
                     end
                 end
             end
-            if highestPart and highestNum > 1 then
-                WinSystem.LastDetectedName = folder.Name .. " [" .. tostring(highestNum) .. "]"
-                return highestPart, highestPart.CFrame + Vector3.new(0, 4, 0), WinSystem.LastDetectedName
+            if highestPart and highestNumber > 1 then
+                candidatePart = highestPart
+                candidateCFrame = highestPart.CFrame + Vector3.new(0, 4, 0)
+                candidateName = folderName .. " [Stage " .. tostring(highestNumber) .. "]"
+                break
             end
         end
     end
 
-    -- 3. Cari part dengan nama Win / Finish (kecuali yang di-blacklist)
-    local winKeywords = {"winpad", "finishpad", "endpad", "winner", "trophy", "finish", "goal", "badge"}
-    for _, kw in ipairs(winKeywords) do
-        for _, obj in ipairs(workspace:GetDescendants()) do
-            if obj:IsA("BasePart") and not isIgnoredPart(obj.Name) then
-                local lower = string.lower(obj.Name)
-                if string.find(lower, kw) and not obj:IsDescendantOf(LocalPlayer.Character or workspace) then
-                    WinSystem.LastDetectedName = obj.Name
-                    return obj, obj.CFrame + Vector3.new(0, 4, 0), WinSystem.LastDetectedName
-                end
-            end
-        end
-    end
-
-    -- 4. Cari Platform Terjauh dari Spawn (Ujung Obby Sebenarnya)
-    local spawnPos = getSpawnPosition()
-    local furthestPart = nil
-    local maxDist = 0
-
-    for _, desc in ipairs(workspace:GetDescendants()) do
-        if desc:IsA("BasePart") and desc.Anchored and not isIgnoredPart(desc.Name) then
-            -- Ukuran platform yang wajar untuk dipijak
-            if desc.Size.X >= 2 and desc.Size.Z >= 2 and desc.Size.Y >= 0.2 then
-                -- Jangan ambil karakter pemain
-                local isPlayerPart = false
-                for _, plr in ipairs(Players:GetPlayers()) do
-                    if plr.Character and desc:IsDescendantOf(plr.Character) then
-                        isPlayerPart = true
+    -- 2. Scan nama part berawalan / mengandung kata kunci Win/Goal
+    if not candidateCFrame then
+        for _, keyword in ipairs({"winpad", "finishpad", "endpad", "winner", "trophy", "finish", "goal", "badge"}) do
+            for _, obj in ipairs(workspace:GetDescendants()) do
+                if obj:IsA("BasePart") and not isIgnoredPart(obj.Name) then
+                    if string.find(string.lower(obj.Name), keyword) then
+                        candidatePart = obj
+                        candidateCFrame = obj.CFrame + Vector3.new(0, 4, 0)
+                        candidateName = obj.Name
                         break
                     end
                 end
+            end
+            if candidateCFrame then break end
+        end
+    end
 
-                if not isPlayerPart then
-                    local dist = (desc.Position - spawnPos).Magnitude
-                    -- Pastikan jaraknya signifikan (> 120 studs dari spawn)
-                    if dist > 120 and dist > maxDist then
-                        maxDist = dist
-                        furthestPart = desc
+    -- 3. Platform terjauh dari spawn
+    if not candidateCFrame then
+        local spawnPos = getSpawnPosition()
+        local maxDist = 0
+        local furthestPart = nil
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            if obj:IsA("BasePart") and obj.Anchored and not isIgnoredPart(obj.Name) then
+                if obj.Size.X >= 2 and obj.Size.Z >= 2 and obj.Size.Y >= 0.2 then
+                    local isCharacterPart = false
+                    for _, player in ipairs(Players:GetPlayers()) do
+                        if player.Character and obj:IsDescendantOf(player.Character) then
+                            isCharacterPart = true
+                            break
+                        end
+                    end
+                    if not isCharacterPart then
+                        local dist = (obj.Position - spawnPos).Magnitude
+                        if dist > 120 and dist > maxDist then
+                            maxDist = dist
+                            furthestPart = obj
+                        end
                     end
                 end
             end
         end
+        if furthestPart then
+            candidatePart = furthestPart
+            candidateCFrame = furthestPart.CFrame + Vector3.new(0, 4, 0)
+            candidateName = string.format("Ujung Obby: %s (%.0f studs)", furthestPart.Name, maxDist)
+        end
     end
 
-    if furthestPart then
-        WinSystem.LastDetectedName = string.format("Ujung Obby: %s (%.0f studs)", furthestPart.Name, maxDist)
-        return furthestPart, furthestPart.CFrame + Vector3.new(0, 4, 0), WinSystem.LastDetectedName
+    if candidateCFrame then
+        WinSystem.LastDetectedName = candidateName or "Titik Win Terdeteksi"
+        return candidatePart, candidateCFrame, WinSystem.LastDetectedName
     end
 
-    WinSystem.LastDetectedName = "Tidak Terdeteksi (Gunakan Set Manual)"
-    return nil, nil, WinSystem.LastDetectedName
+    return nil, nil, "Tidak Ditemukan"
+end
+
+-- ═══════════════════════════════════════════
+--  DEVICE ID RESOLVER & CONFIG MANAGER
+-- ═══════════════════════════════════════════
+local function getClientDeviceId()
+    local hwid = ""
+    pcall(function()
+        hwid = game:GetService("RbxAnalyticsService"):GetClientId()
+    end)
+    if not hwid or hwid == "" or hwid == "00000000-0000-0000-0000-000000000000" then
+        pcall(function()
+            if gethwid then hwid = gethwid() end
+        end)
+    end
+    if not hwid or hwid == "" then
+        pcall(function()
+            if identifyexecutor then hwid = identifyexecutor() .. "_" .. tostring(LocalPlayer.UserId) end
+        end)
+    end
+    if not hwid or hwid == "" then
+        hwid = "DEV_" .. tostring(LocalPlayer.UserId)
+    end
+    return tostring(hwid)
+end
+
+local currentDeviceId = getClientDeviceId()
+local CONFIG_FILE = "unionsal_device_config.json"
+
+local ConfigRegistry = {
+    AutoWin = false,
+    BlatantMode = false,
+    LoopDelay = 0.3,
+    SafeFall = false,
+    InfJump = false,
+    WalkSpeed = 16,
+    BlatantSpeed = false,
+    Fly = false,
+    FlySpeed = 50,
+    NoClip = false,
+    SpinBot = false,
+    SpinSpeed = 30,
+    Fullbright = false,
+    Fov = 70,
+    AntiAfk = true,
+    FpsBoost = false,
+    PotatoGraphics = false,
+    AutoSave = true,
+    WebhookUrl = "",
+    SendOnExec = true,
+    SendOnWin = true,
+    ToggleKey = "RightShift"
+}
+
+local ToggleObjects = {}
+local SliderObjects = {}
+local InputObjects = {}
+
+local function saveDeviceConfig(showNotification)
+    local payload = {
+        DeviceId = currentDeviceId,
+        PlayerName = LocalPlayer.Name,
+        UserId = LocalPlayer.UserId,
+        SavedAt = os.time(),
+        Settings = ConfigRegistry
+    }
+    local ok = pcall(function()
+        if writefile then
+            writefile(CONFIG_FILE, game:GetService("HttpService"):JSONEncode(payload))
+            return true
+        end
+        return false
+    end)
+    if showNotification then
+        if ok then
+            Window:Notify({ Title = "Config Tersimpan", Content = "Pengaturan berhasil disimpan untuk device ini (" .. string.sub(currentDeviceId, 1, 8) .. "...)", Duration = 3 })
+        else
+            Window:Notify({ Title = "Config Error", Content = "Executor kamu tidak memiliki izin writefile.", Duration = 3 })
+        end
+    end
+    return ok
+end
+
+local function loadDeviceConfig(showNotification)
+    local ok, content = pcall(function()
+        if readfile and isfile and isfile(CONFIG_FILE) then
+            return readfile(CONFIG_FILE)
+        end
+        return nil
+    end)
+    if not ok or not content or content == "" then
+        return false, "Belum ada file"
+    end
+
+    local parseOk, parsed = pcall(function()
+        return game:GetService("HttpService"):JSONDecode(content)
+    end)
+    if not parseOk or not parsed or typeof(parsed) ~= "table" then
+        return false, "Format tidak valid"
+    end
+
+    -- CEK APAKAH DEVICE SAMA:
+    if parsed.DeviceId == currentDeviceId then
+        -- DEVICE COCOK! Pulihkan seluruh konfigurasi
+        if parsed.Settings and typeof(parsed.Settings) == "table" then
+            for k, val in pairs(parsed.Settings) do
+                ConfigRegistry[k] = val
+                if ToggleObjects[k] then
+                    pcall(function() ToggleObjects[k]:Set(val, true) end)
+                end
+                if SliderObjects[k] then
+                    pcall(function() SliderObjects[k]:Set(val, true) end)
+                end
+                if InputObjects[k] then
+                    pcall(function() InputObjects[k]:Set(val, true) end)
+                end
+            end
+            if parsed.Settings.ToggleKey and Enum.KeyCode[parsed.Settings.ToggleKey] then
+                Window.ToggleKey = Enum.KeyCode[parsed.Settings.ToggleKey]
+            end
+        end
+        if showNotification then
+            Window:Notify({ Title = "Config Dimuat", Content = "Device terverifikasi! Konfigurasi tersimpan otomatis aktif.", Duration = 4 })
+        end
+        return true, "Success"
+    else
+        -- DEVICE BERBEDA: Reset konfigurasi ke default!
+        pcall(function()
+            if delfile then delfile(CONFIG_FILE) end
+        end)
+        if showNotification then
+            Window:Notify({ Title = "Device Berbeda", Content = "Device berbeda terdeteksi! Semua pengaturan di-reset ke default.", Duration = 4 })
+        end
+        return false, "Device Mismatch"
+    end
+end
+
+local function notifyStateChange(k, v)
+    ConfigRegistry[k] = v
+    if ConfigRegistry.AutoSave then
+        task.spawn(function()
+            saveDeviceConfig(false)
+        end)
+    end
+end
+
+-- ═══════════════════════════════════════════
+--  OPTIMASI GRAFIK POTATO & FPS BOOST
+-- ═══════════════════════════════════════════
+local function applyPotatoGraphics(enable)
+    local Lighting = game:GetService("Lighting")
+    local Terrain = workspace:FindFirstChildOfClass("Terrain")
+
+    if enable then
+        pcall(function()
+            settings().Rendering.QualityLevel = 1
+        end)
+        pcall(function()
+            Lighting.GlobalShadows = false
+            Lighting.FogEnd = 9e9
+            Lighting.Brightness = 1
+        end)
+        for _, v in ipairs(Lighting:GetChildren()) do
+            if v:IsA("PostEffect") or v:IsA("BloomEffect") or v:IsA("ColorCorrectionEffect") or v:IsA("SunRaysEffect") or v:IsA("BlurEffect") or v:IsA("DepthOfFieldEffect") then
+                v.Enabled = false
+            end
+        end
+        if Terrain then
+            pcall(function()
+                Terrain.Decoration = false
+                Terrain.WaterWaveSize = 0
+                Terrain.WaterWaveSpeed = 0
+                Terrain.WaterReflectance = 0
+            end)
+        end
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            if obj:IsA("BasePart") and not obj:IsDescendantOf(LocalPlayer.Character or workspace) then
+                pcall(function()
+                    obj.Material = Enum.Material.SmoothPlastic
+                    obj.CastShadow = false
+                end)
+            elseif obj:IsA("Decal") or obj:IsA("Texture") then
+                pcall(function() obj.Transparency = 1 end)
+            elseif obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Smoke") or obj:IsA("Fire") or obj:IsA("Sparkles") then
+                pcall(function() obj.Enabled = false end)
+            end
+        end
+    else
+        pcall(function()
+            Lighting.GlobalShadows = true
+            Lighting.FogEnd = 1000
+        end)
+        for _, v in ipairs(Lighting:GetChildren()) do
+            if v:IsA("PostEffect") then v.Enabled = true end
+        end
+        if Terrain then
+            pcall(function() Terrain.Decoration = true end)
+        end
+    end
+end
+
+local function applyFpsBoost(enable)
+    if enable then
+        pcall(function()
+            settings().Rendering.QualityLevel = 1
+            game:GetService("Lighting").GlobalShadows = false
+        end)
+    else
+        pcall(function()
+            settings().Rendering.QualityLevel = 0
+            game:GetService("Lighting").GlobalShadows = true
+        end)
+    end
 end
 
 -- ╔══════════════════════════════╗
--- ║  TAB: AUTO WIN (MAIN)        ║
+-- ║  TAB: AUTO FARM (MAIN)       ║
 -- ╚══════════════════════════════╝
 local WinTab = Window:CreateTab("Auto Farm", "sprout", "Main")
-
 WinTab:CreateSection("Auto Win Automation")
 
-WinTab:CreateToggle({
+ToggleObjects.AutoWin = WinTab:CreateToggle({
     Name = "Enable Auto Win (Loop Otomatis)",
     CurrentValue = false,
     Callback = function(v)
         WinSystem.AutoWinRunning = v
+        notifyStateChange("AutoWin", v)
         Window:Notify({
             Title   = "Auto Win",
             Content = v and "Auto Win aktif! Menjalankan siklus..." or "Auto Win dihentikan.",
@@ -209,15 +426,12 @@ WinTab:CreateToggle({
                     local part, winCf = findWinPart()
 
                     if root and winCf then
-                        -- Simpan spawn awal jika belum
                         if root.CFrame.Y < 30 then
                             WinSystem.SpawnCFrame = root.CFrame
                         end
 
-                        -- Teleport ke Win
                         root.CFrame = winCf + Vector3.new(0, 2, 0)
 
-                        -- Trigger touch transmitter jika ada
                         if part and firetouchinterest then
                             pcall(function()
                                 firetouchinterest(root, part, 0)
@@ -226,28 +440,13 @@ WinTab:CreateToggle({
                             end)
                         end
 
-                        -- Klik ClickDetector / ProximityPrompt jika ada
-                        if part then
-                            local cd = part:FindFirstChildOfClass("ClickDetector")
-                            if cd and fireclickdetector then
-                                pcall(function() fireclickdetector(cd) end)
-                            end
-                            local pp = part:FindFirstChildOfClass("ProximityPrompt")
-                            if pp and fireproximityprompt then
-                                pcall(function() fireproximityprompt(pp) end)
-                            end
-                        end
-
-                        -- Mode Blatant: sangat cepat, delay minimal
                         if WinSystem.BlatantMode then
                             task.wait(WinSystem.LoopDelay)
-                            -- Balik sekejap ke spawn
                             if root and WinSystem.SpawnCFrame then
                                 root.CFrame = WinSystem.SpawnCFrame
                             end
                             task.wait(0.05)
                         else
-                            -- Mode Aman: delay lebih teratur
                             task.wait(WinSystem.LoopDelay)
                             if root and WinSystem.SpawnCFrame then
                                 root.CFrame = WinSystem.SpawnCFrame
@@ -263,27 +462,29 @@ WinTab:CreateToggle({
     end,
 })
 
-WinTab:CreateToggle({
+ToggleObjects.BlatantMode = WinTab:CreateToggle({
     Name = "Mode Blatant (Kecepatan Ekstrem)",
     CurrentValue = false,
     Callback = function(v)
         WinSystem.BlatantMode = v
+        notifyStateChange("BlatantMode", v)
         Window:Notify({
             Title   = "Blatant Mode",
-            Content = v and "Mode Blatant aktif! Delay dipercepat ke batas maksimal." or "Mode Blatant nonaktif.",
+            Content = v and "Mode Blatant aktif! Delay minimal." or "Mode Blatant nonaktif.",
             Duration = 2,
         })
     end,
 })
 
-WinTab:CreateSlider({
-    Name = "Auto Win Delay (Detik)",
+SliderObjects.LoopDelay = WinTab:CreateSlider({
+    Name = "Auto Win Delay",
     Range = {0.05, 3},
     Increment = 0.05,
-    Suffix = "s",
+    Suffix = " detik",
     CurrentValue = 0.3,
     Callback = function(v)
         WinSystem.LoopDelay = v
+        notifyStateChange("LoopDelay", v)
     end,
 })
 
@@ -295,23 +496,23 @@ WinTab:CreateButton({
         local root = getRootPart()
         local part, winCf, name = findWinPart()
         if root and winCf then
-            root.CFrame = winCf
+            root.CFrame = winCf + Vector3.new(0, 2, 0)
             if part and firetouchinterest then
                 pcall(function()
                     firetouchinterest(root, part, 0)
-                    task.wait(0.02)
+                    task.wait(0.03)
                     firetouchinterest(root, part, 1)
                 end)
             end
             Window:Notify({
                 Title   = "Teleport Berhasil",
-                Content = "Tiba di: " .. tostring(name),
+                Content = "Tiba di titik target: " .. tostring(name),
                 Duration = 3,
             })
         else
             Window:Notify({
-                Title   = "Part Belum Ditemukan",
-                Content = "Gunakan tombol 'Set Posisi Saat Ini Sebagai Titik Win' saat berada di garis finish.",
+                Title   = "Belum Terdeteksi",
+                Content = "Gunakan tombol Set Manual di bawah saat berada di garis finish.",
                 Duration = 4,
             })
         end
@@ -324,11 +525,10 @@ WinTab:CreateButton({
         local root = getRootPart()
         if root then
             WinSystem.CustomWinCFrame = root.CFrame + Vector3.new(0, 1, 0)
-            WinSystem.LastDetectedName = "Titik Manual Pengguna"
             Window:Notify({
-                Title   = "Titik Win Terkunci",
-                Content = string.format("Koordinat: X:%.0f  Y:%.0f  Z:%.0f", root.Position.X, root.Position.Y, root.Position.Z),
-                Duration = 3,
+                Title   = "Titik Terkunci",
+                Content = string.format("X: %.0f, Y: %.0f, Z: %.0f", root.Position.X, root.Position.Y, root.Position.Z),
+                Duration = 4,
             })
         end
     end,
@@ -339,17 +539,15 @@ WinTab:CreateButton({
     Callback = function()
         local part, winCf, name = findWinPart()
         if winCf then
-            local p = winCf.Position
             Window:Notify({
-                Title   = "Hasil Scan Map",
-                Content = "Target: " .. tostring(name) .. string.format("
-Koordinat: %.0f, %.0f, %.0f", p.X, p.Y, p.Z),
+                Title   = "Hasil Scan",
+                Content = "Target: " .. tostring(name),
                 Duration = 4,
             })
         else
             Window:Notify({
-                Title   = "Hasil Scan Map",
-                Content = "Tidak ada part win bernama. Silakan berdiri di finish dan klik 'Set Posisi Saat Ini'.",
+                Title   = "Hasil Scan",
+                Content = "Silakan berdiri di finish lalu klik 'Set Posisi Saat Ini'.",
                 Duration = 4,
             })
         end
@@ -360,68 +558,53 @@ Koordinat: %.0f, %.0f, %.0f", p.X, p.Y, p.Z),
 -- ║  TAB: SPEED & JUMP (MAIN)    ║
 -- ╚══════════════════════════════╝
 local MoveTab = Window:CreateTab("Speed & Jump", "rocket", "Main")
-
--- Proteksi Kebal Jatuh (No Fall Damage / Anti-Ragdoll)
-local safeFallEnabled = false
-local noFallConn = nil
+local safeFallActive = false
+local safeFallHeartbeat = nil
 
 MoveTab:CreateSection("Proteksi Fisika & Kebal Jatuh")
 
-MoveTab:CreateToggle({
+ToggleObjects.SafeFall = MoveTab:CreateToggle({
     Name = "Kebal Saat Jatuh (No Fall Damage)",
     CurrentValue = false,
     Callback = function(v)
-        safeFallEnabled = v
+        safeFallActive = v
+        notifyStateChange("SafeFall", v)
+        local hum = getHumanoid()
+        if hum then
+            pcall(function()
+                hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, not v)
+                hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, not v)
+            end)
+        end
+
+        if v and not safeFallHeartbeat then
+            safeFallHeartbeat = RunService.Heartbeat:Connect(function()
+                if not safeFallActive then return end
+                local root = getRootPart()
+                if root and root.AssemblyLinearVelocity.Y < -40 then
+                    root.AssemblyLinearVelocity = Vector3.new(
+                        root.AssemblyLinearVelocity.X,
+                        -5,
+                        root.AssemblyLinearVelocity.Z
+                    )
+                end
+            end)
+        elseif not v and safeFallHeartbeat then
+            safeFallHeartbeat:Disconnect()
+            safeFallHeartbeat = nil
+        end
+
         Window:Notify({
             Title   = "Anti-Fall Damage",
-            Content = v and "Proteksi kebal jatuh aktif! Karakter aman dari ketinggian." or "Proteksi kebal jatuh nonaktif.",
+            Content = v and "Kebal jatuh AKTIF! Gravitasi diatur aman." or "Kebal jatuh NONAKTIF.",
             Duration = 2,
         })
-
-        if v then
-            -- Mencegah state Freefall memicu damage benturan
-            local hum = getHumanoid()
-            if hum then
-                pcall(function()
-                    hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-                    hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
-                end)
-            end
-
-            -- Reset velocity jatuh bebas sebelum menyentuh tanah
-            if not noFallConn then
-                noFallConn = RunService.Heartbeat:Connect(function()
-                    if not safeFallEnabled then return end
-                    local root = getRootPart()
-                    local h = getHumanoid()
-                    if root and h then
-                        -- Jika kecepatan jatuh ke bawah terlalu cepat, redam secara instan
-                        if root.AssemblyLinearVelocity.Y < -40 then
-                            root.AssemblyLinearVelocity = Vector3.new(root.AssemblyLinearVelocity.X, -5, root.AssemblyLinearVelocity.Z)
-                        end
-                    end
-                end)
-            end
-        else
-            if noFallConn then
-                noFallConn:Disconnect()
-                noFallConn = nil
-            end
-            local hum = getHumanoid()
-            if hum then
-                pcall(function()
-                    hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, true)
-                    hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, true)
-                end)
-            end
-        end
     end,
 })
 
--- Infinite Jump (Lompat Bebas di Udara)
-local infJumpEnabled = false
+local infiniteJump = false
 UserInputService.JumpRequest:Connect(function()
-    if infJumpEnabled then
+    if infiniteJump then
         local hum = getHumanoid()
         if hum then
             hum:ChangeState(Enum.HumanoidStateType.Jumping)
@@ -429,23 +612,18 @@ UserInputService.JumpRequest:Connect(function()
     end
 end)
 
-MoveTab:CreateToggle({
-    Name = "Infinite Jump (Lompat Tanpa Batas di Udara)",
+ToggleObjects.InfJump = MoveTab:CreateToggle({
+    Name = "Infinite Jump (Lompat Tanpa Batas)",
     CurrentValue = false,
     Callback = function(v)
-        infJumpEnabled = v
-        Window:Notify({
-            Title   = "Infinite Jump",
-            Content = v and "Lompat bebas aktif! Tekan spasi berulang kali di udara." or "Infinite jump nonaktif.",
-            Duration = 2,
-        })
+        infiniteJump = v
+        notifyStateChange("InfJump", v)
     end,
 })
 
--- WalkSpeed Controller
 MoveTab:CreateSection("WalkSpeed & Blatant Speed")
 
-MoveTab:CreateSlider({
+SliderObjects.WalkSpeed = MoveTab:CreateSlider({
     Name = "WalkSpeed",
     Range = {1, 500},
     Increment = 1,
@@ -454,32 +632,27 @@ MoveTab:CreateSlider({
     Callback = function(v)
         local hum = getHumanoid()
         if hum then hum.WalkSpeed = v end
+        notifyStateChange("WalkSpeed", v)
     end,
 })
 
--- Blatant CFrame Speed (Bypass Speed Anti-Cheat)
-local blatantSpeedEnabled = false
-local blatantSpeedMultiplier = 60
+local blatantSpeed = false
+local speedMultiplier = 60
 local blatantConn = nil
 
-MoveTab:CreateToggle({
-    Name = "Blatant CFrame Speed (Lari Tembus Kecepatan)",
+ToggleObjects.BlatantSpeed = MoveTab:CreateToggle({
+    Name = "Blatant CFrame Speed",
     CurrentValue = false,
     Callback = function(v)
-        blatantSpeedEnabled = v
-        Window:Notify({
-            Title   = "Blatant Speed",
-            Content = v and "Blatant speed aktif! Bergerak cepat dengan CFrame." or "Blatant speed nonaktif.",
-            Duration = 2,
-        })
-
+        blatantSpeed = v
+        notifyStateChange("BlatantSpeed", v)
         if v and not blatantConn then
             blatantConn = RunService.RenderStepped:Connect(function(dt)
-                if not blatantSpeedEnabled then return end
+                if not blatantSpeed then return end
                 local root = getRootPart()
                 local hum = getHumanoid()
                 if root and hum and hum.MoveDirection.Magnitude > 0 then
-                    root.CFrame = root.CFrame + (hum.MoveDirection * (blatantSpeedMultiplier * dt))
+                    root.CFrame = root.CFrame + (hum.MoveDirection * (speedMultiplier * dt))
                 end
             end)
         elseif not v and blatantConn then
@@ -489,224 +662,56 @@ MoveTab:CreateToggle({
     end,
 })
 
-MoveTab:CreateSlider({
-    Name = "Blatant Speed Multiplier",
-    Range = {10, 300},
-    Increment = 5,
-    Suffix = "x",
-    CurrentValue = 60,
-    Callback = function(v)
-        blatantSpeedMultiplier = v
-    end,
-})
-
-MoveTab:CreateButton({
-    Name = "Reset WalkSpeed ke 16",
-    Callback = function()
-        local hum = getHumanoid()
-        if hum then hum.WalkSpeed = 16 end
-        Window:Notify({
-            Title = "Reset Speed",
-            Content = "WalkSpeed dikembalikan ke default (16).",
-            Duration = 2,
-        })
-    end,
-})
-
--- Jump Power Controller
-MoveTab:CreateSection("Jump Power Controller")
-
-MoveTab:CreateSlider({
-    Name = "Jump Power / Height",
-    Range = {7, 500},
-    Increment = 1,
-    Suffix = " jmp",
-    CurrentValue = 7,
-    Callback = function(v)
-        local hum = getHumanoid()
-        if hum then
-            hum.JumpPower = v
-            pcall(function() hum.JumpHeight = v end)
-        end
-    end,
-})
-
-MoveTab:CreateButton({
-    Name = "Reset Jump ke Default",
-    Callback = function()
-        local hum = getHumanoid()
-        if hum then
-            hum.JumpPower = 7
-            pcall(function() hum.JumpHeight = 7 end)
-        end
-        Window:Notify({
-            Title = "Reset Jump",
-            Content = "Jump power dikembalikan ke default.",
-            Duration = 2,
-        })
-    end,
-})
-
-MoveTab:CreateSection("Preset Kecepatan Instan")
-
-local presets = {
-    { name = "Normal Speed (16 / 7)", spd = 16, jmp = 7 },
-    { name = "Medium Speed (50 / 50)", spd = 50, jmp = 50 },
-    { name = "Turbo Speed (200 / 200)", spd = 200, jmp = 200 },
-    { name = "God Speed (500 / 500)", spd = 500, jmp = 500 },
-}
-
-for _, p in ipairs(presets) do
-    MoveTab:CreateButton({
-        Name = p.name,
-        Callback = function()
-            local hum = getHumanoid()
-            if hum then
-                hum.WalkSpeed = p.spd
-                hum.JumpPower = p.jmp
-                pcall(function() hum.JumpHeight = p.jmp end)
-            end
-            Window:Notify({
-                Title = "Preset Aktif",
-                Content = p.name .. " diaplikasikan.",
-                Duration = 2,
-            })
-        end,
-    })
-end
-
 -- ╔══════════════════════════════╗
 -- ║  TAB: TELEPORT (MAIN)        ║
 -- ╚══════════════════════════════╝
 local TpTab = Window:CreateTab("Teleport", "navigation", "Main")
-
-TpTab:CreateSection("Teleport Langsung ke Titik Penting")
-
-TpTab:CreateButton({
-    Name = "Teleport ke Win / Finish Line",
-    Callback = function()
-        local root = getRootPart()
-        local part, winCf = findWinPart()
-        if root and winCf then
-            root.CFrame = winCf + Vector3.new(0, 3, 0)
-            Window:Notify({ Title = "Teleport", Content = "Tiba di area Win!", Duration = 2 })
-        else
-            Window:Notify({ Title = "Gagal", Content = "Titik Win belum ditemukan.", Duration = 2 })
-        end
-    end,
-})
+TpTab:CreateSection("Teleport Lokasi Default")
 
 TpTab:CreateButton({
-    Name = "Spawn Point (0, 5, 0)",
+    Name = "Teleport ke Spawn Asli",
     Callback = function()
         local root = getRootPart()
         if root then
-            root.CFrame = WinSystem.SpawnCFrame or CFrame.new(0, 5, 0)
-            Window:Notify({ Title = "Spawn Point", Content = "Kembali ke spawn point.", Duration = 2 })
+            local sp = workspace:FindFirstChildWhichIsA("SpawnLocation", true)
+            if sp then
+                root.CFrame = sp.CFrame + Vector3.new(0, 4, 0)
+            else
+                root.CFrame = CFrame.new(0, 10, 0)
+            end
+            Window:Notify({ Title = "Teleport", Content = "Berhasil kembali ke Spawn.", Duration = 2 })
         end
     end,
 })
 
-TpTab:CreateSection("Teleport ke Player")
-
 local function getPlayerNames()
     local names = {}
-    for _, plr in pairs(Players:GetPlayers()) do
-        if plr ~= LocalPlayer then
-            table.insert(names, plr.Name)
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then
+            table.insert(names, p.Name)
         end
     end
-    return #names > 0 and names or {"(tidak ada player)"}
+    if #names == 0 then table.insert(names, "(tidak ada player lain)") end
+    return names
 end
 
-local selectedTarget = nil
+local selectedTargetPlayer = nil
 TpTab:CreateDropdown({
     Name = "Pilih Target Player",
     Options = getPlayerNames(),
-    Callback = function(opt)
-        selectedTarget = opt
-    end,
+    Callback = function(opt) selectedTargetPlayer = opt end,
 })
 
 TpTab:CreateButton({
     Name = "Teleport ke Player Dipilih",
     Callback = function()
         local myRoot = getRootPart()
-        if not myRoot then return end
-        if not selectedTarget or selectedTarget == "(tidak ada player)" then
-            Window:Notify({ Title = "Pilih Player", Content = "Silakan pilih player dari dropdown.", Duration = 3 })
-            return
-        end
-        local target = Players:FindFirstChild(selectedTarget)
-        if target and target.Character then
-            local tRoot = target.Character:FindFirstChild("HumanoidRootPart")
-            if tRoot then
-                myRoot.CFrame = tRoot.CFrame + Vector3.new(3, 0, 0)
-                Window:Notify({ Title = "Teleport Selesai", Content = "Berhasil teleport ke " .. selectedTarget, Duration = 2 })
+        if myRoot and selectedTargetPlayer and selectedTargetPlayer ~= "(tidak ada player lain)" then
+            local tPlayer = Players:FindFirstChild(selectedTargetPlayer)
+            if tPlayer and tPlayer.Character and tPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                myRoot.CFrame = tPlayer.Character.HumanoidRootPart.CFrame + Vector3.new(3, 0, 0)
+                Window:Notify({ Title = "Teleport", Content = "Berhasil teleport ke " .. selectedTargetPlayer, Duration = 2 })
             end
-        else
-            Window:Notify({ Title = "Player Tidak Ditemukan", Content = selectedTarget .. " offline atau tidak ada karakter.", Duration = 3 })
-        end
-    end,
-})
-
-TpTab:CreateButton({
-    Name = "Teleport ke Player Terdekat",
-    Callback = function()
-        local myRoot = getRootPart()
-        if not myRoot then return end
-        local nearest, nearestDist = nil, math.huge
-        for _, plr in pairs(Players:GetPlayers()) do
-            if plr ~= LocalPlayer and plr.Character then
-                local r = plr.Character:FindFirstChild("HumanoidRootPart")
-                if r then
-                    local d = (myRoot.Position - r.Position).Magnitude
-                    if d < nearestDist then
-                        nearestDist = d
-                        nearest = plr
-                    end
-                end
-            end
-        end
-        if nearest and nearest.Character then
-            local tRoot = nearest.Character:FindFirstChild("HumanoidRootPart")
-            if tRoot then
-                myRoot.CFrame = tRoot.CFrame + Vector3.new(3, 0, 0)
-                Window:Notify({ Title = "Teleport Player Terdekat", Content = nearest.Name .. " (" .. math.floor(nearestDist) .. " studs)", Duration = 3 })
-            end
-        else
-            Window:Notify({ Title = "Tidak Ada Target", Content = "Tidak ada player lain di server.", Duration = 2 })
-        end
-    end,
-})
-
-TpTab:CreateSection("Teleport Koordinat Custom")
-
-local tpX, tpY, tpZ = 0, 0, 0
-
-TpTab:CreateInput({
-    Name = "Koordinat X",
-    PlaceholderText = "Nilai X (contoh: 100)",
-    Callback = function(v) tpX = tonumber(v) or 0 end,
-})
-TpTab:CreateInput({
-    Name = "Koordinat Y",
-    PlaceholderText = "Nilai Y (contoh: 50)",
-    Callback = function(v) tpY = tonumber(v) or 0 end,
-})
-TpTab:CreateInput({
-    Name = "Koordinat Z",
-    PlaceholderText = "Nilai Z (contoh: 200)",
-    Callback = function(v) tpZ = tonumber(v) or 0 end,
-})
-
-TpTab:CreateButton({
-    Name = "Teleport ke Koordinat",
-    Callback = function()
-        local root = getRootPart()
-        if root then
-            root.CFrame = CFrame.new(tpX, tpY, tpZ)
-            Window:Notify({ Title = "Teleport", Content = string.format("X: %.0f  Y: %.0f  Z: %.0f", tpX, tpY, tpZ), Duration = 2 })
         end
     end,
 })
@@ -716,8 +721,6 @@ TpTab:CreateButton({
 -- ╚══════════════════════════════╝
 local ShopTab = Window:CreateTab("Shop", "cart", "Main")
 ShopTab:CreateSection("In-Game Shop Automation")
-ShopTab:CreateLabel("Fitur auto buy koin dan perk gamepass Blush Canyon.")
-
 ShopTab:CreateButton({
     Name = "Buka Toko Gravity & Speed Coil",
     Callback = function()
@@ -739,7 +742,6 @@ ShopTab:CreateButton({
 local PlayerTab = Window:CreateTab("Player", "user", "Main")
 PlayerTab:CreateSection("Karakter & Fisika")
 
--- Fly Mode
 local flying = false
 local flySpeed = 50
 local flyBV, flyBG = nil, nil
@@ -790,33 +792,37 @@ local function stopFly()
     if flyBG then flyBG:Destroy(); flyBG = nil end
 end
 
-PlayerTab:CreateToggle({
+ToggleObjects.Fly = PlayerTab:CreateToggle({
     Name = "Fly Mode (Terbang WASD)",
     CurrentValue = false,
     Callback = function(v)
         flying = v
+        notifyStateChange("Fly", v)
         if v then startFly() else stopFly() end
         Window:Notify({ Title = "Fly", Content = v and "Fly Mode Aktif (WASD + Space/Shift)" or "Fly Mode Nonaktif", Duration = 2 })
     end
 })
 
-PlayerTab:CreateSlider({
+SliderObjects.FlySpeed = PlayerTab:CreateSlider({
     Name = "Fly Speed",
     Range = {10, 250},
     Increment = 5,
     Suffix = " spd",
     CurrentValue = 50,
-    Callback = function(v) flySpeed = v end
+    Callback = function(v)
+        flySpeed = v
+        notifyStateChange("FlySpeed", v)
+    end
 })
 
--- NoClip
 local noclip = false
 local noclipConn = nil
-PlayerTab:CreateToggle({
+ToggleObjects.NoClip = PlayerTab:CreateToggle({
     Name = "NoClip (Tembus Dinding)",
     CurrentValue = false,
     Callback = function(v)
         noclip = v
+        notifyStateChange("NoClip", v)
         if v and not noclipConn then
             noclipConn = RunService.Stepped:Connect(function()
                 if not noclip then return end
@@ -837,15 +843,15 @@ PlayerTab:CreateToggle({
     end
 })
 
--- SpinBot
 local spinbot = false
 local spinSpeed = 30
 local spinConn = nil
-PlayerTab:CreateToggle({
+ToggleObjects.SpinBot = PlayerTab:CreateToggle({
     Name = "SpinBot (Putar Cepat)",
     CurrentValue = false,
     Callback = function(v)
         spinbot = v
+        notifyStateChange("SpinBot", v)
         if v and not spinConn then
             spinConn = RunService.RenderStepped:Connect(function()
                 if not spinbot then return end
@@ -855,33 +861,37 @@ PlayerTab:CreateToggle({
                 end
             end)
         elseif not v and spinConn then
-            spinConn:Disconnect(); spinConn = nil
+            spinConn:Disconnect()
+            spinConn = nil
         end
     end
 })
 
-PlayerTab:CreateSlider({
+SliderObjects.SpinSpeed = PlayerTab:CreateSlider({
     Name = "SpinBot Speed",
     Range = {5, 100},
     Increment = 5,
     Suffix = " rpm",
     CurrentValue = 30,
-    Callback = function(v) spinSpeed = v end
+    Callback = function(v)
+        spinSpeed = v
+        notifyStateChange("SpinSpeed", v)
+    end
 })
 
 PlayerTab:CreateSection("Visual & Kamera")
 
--- Fullbright
 local fullbright = false
 local Lighting = game:GetService("Lighting")
 local oldAmbient = Lighting.Ambient
 local oldBrightness = Lighting.Brightness
 local oldClock = Lighting.ClockTime
-PlayerTab:CreateToggle({
+ToggleObjects.Fullbright = PlayerTab:CreateToggle({
     Name = "Fullbright (Terang Benderang / Anti Gelap)",
     CurrentValue = false,
     Callback = function(v)
         fullbright = v
+        notifyStateChange("Fullbright", v)
         if v then
             Lighting.Ambient = Color3.fromRGB(255, 255, 255)
             Lighting.Brightness = 2
@@ -895,8 +905,7 @@ PlayerTab:CreateToggle({
     end
 })
 
--- FOV Slider
-PlayerTab:CreateSlider({
+SliderObjects.Fov = PlayerTab:CreateSlider({
     Name = "Field of View (FOV)",
     Range = {70, 120},
     Increment = 1,
@@ -904,19 +913,20 @@ PlayerTab:CreateSlider({
     CurrentValue = 70,
     Callback = function(v)
         workspace.CurrentCamera.FieldOfView = v
+        notifyStateChange("Fov", v)
     end
 })
 
 PlayerTab:CreateSection("Utilitas Player")
 
--- Anti-AFK
 local antiAfk = false
 local afkConn = nil
-PlayerTab:CreateToggle({
+ToggleObjects.AntiAfk = PlayerTab:CreateToggle({
     Name = "Anti-AFK (Cegah Disconnect 20 Menit)",
     CurrentValue = true,
     Callback = function(v)
         antiAfk = v
+        notifyStateChange("AntiAfk", v)
         if v and not afkConn then
             local vu = game:GetService("VirtualUser")
             afkConn = LocalPlayer.Idled:Connect(function()
@@ -926,7 +936,8 @@ PlayerTab:CreateToggle({
                 end
             end)
         elseif not v and afkConn then
-            afkConn:Disconnect(); afkConn = nil
+            afkConn:Disconnect()
+            afkConn = nil
         end
     end
 })
@@ -959,30 +970,63 @@ SettingsTab:CreateKeybind({
     CurrentKey = Window.ToggleKey or Enum.KeyCode.RightShift,
     Callback = function(newKey)
         Window.ToggleKey = newKey
+        ConfigRegistry.ToggleKey = newKey.Name
+        notifyStateChange("ToggleKey", newKey.Name)
         Window:Notify({ Title = "Keybind Disimpan", Content = "Tombol menu diubah ke: [" .. newKey.Name .. "]", Duration = 3 })
     end
 })
 
 SettingsTab:CreateParagraph({
     Title = "Daftar Shortcut & Panduan Penggunaan",
-    Content = "• Buka/Tutup UI: Tekan tombol yang telah diatur di atas (Default: RightShift).\n" ..
-              "• Pop-up Kotak Mini: Muncul di kiri saat tombol strip [ — ] ditekan.\n" ..
-              "• Geser Window: Drag header atas UI menggunakan mouse.\n" ..
-              "• Resize Window: Tarik grip pojok kanan bawah seperti aplikasi Windows.\n" ..
+    Content = "• Buka/Tutup UI: Tekan tombol yang telah diatur di atas (Default: RightShift).\\n" ..
+              "• Pop-up Kotak Mini: Muncul di kiri saat tombol strip [ — ] ditekan.\\n" ..
+              "• Geser Window: Drag header atas UI menggunakan mouse.\\n" ..
+              "• Resize Window: Tarik grip pojok kanan bawah seperti aplikasi Windows.\\n" ..
               "• Ganti Tema: Klik ikon matahari di kanan atas untuk White/Dark mode."
 })
 
-SettingsTab:CreateSection("Optimasi Client")
-SettingsTab:CreateToggle({
+SettingsTab:CreateSection("Optimasi Client & FPS")
+ToggleObjects.FpsBoost = SettingsTab:CreateToggle({
     Name = "Reduce Graphics Lag (FPS Boost)",
     CurrentValue = false,
     Callback = function(v)
-        if v then
-            pcall(function()
-                settings().Rendering.QualityLevel = 1
-            end)
-        end
-        Window:Notify({ Title = "Graphics", Content = v and "FPS Boost diaktifkan!" or "FPS Boost dinonaktifkan.", Duration = 2 })
+        applyFpsBoost(v)
+        notifyStateChange("FpsBoost", v)
+        Window:Notify({ Title = "FPS Boost", Content = v and "FPS Boost diaktifkan!" or "FPS Boost dinonaktifkan.", Duration = 2 })
+    end
+})
+
+ToggleObjects.PotatoGraphics = SettingsTab:CreateToggle({
+    Name = "Grafik Potato (Ultra Low Graphics / No Textures)",
+    CurrentValue = false,
+    Callback = function(v)
+        applyPotatoGraphics(v)
+        notifyStateChange("PotatoGraphics", v)
+        Window:Notify({ Title = "Grafik Potato", Content = v and "Grafik Potato aktif! Tekstur dihilangkan untuk FPS maksimal." or "Grafik Potato dinonaktifkan.", Duration = 3 })
+    end
+})
+
+SettingsTab:CreateSection("Opsi Penyimpanan Device")
+ToggleObjects.AutoSave = SettingsTab:CreateToggle({
+    Name = "Auto-Save Konfigurasi Otomatis (Per Device)",
+    CurrentValue = true,
+    Callback = function(v)
+        ConfigRegistry.AutoSave = v
+        Window:Notify({ Title = "Auto-Save", Content = v and "Auto-Save aktif! Setiap perubahan langsung tersimpan." or "Auto-Save dinonaktifkan.", Duration = 2 })
+    end
+})
+
+SettingsTab:CreateButton({
+    Name = "Simpan Konfigurasi Sekarang (Device Ini)",
+    Callback = function()
+        saveDeviceConfig(true)
+    end
+})
+
+SettingsTab:CreateButton({
+    Name = "Muat Ulang Konfigurasi Tersimpan",
+    Callback = function()
+        loadDeviceConfig(true)
     end
 })
 
@@ -996,25 +1040,35 @@ local webhookUrl = ""
 local sendOnExec = true
 local sendOnWin = true
 
-ConfigsTab:CreateInput({
+InputObjects.WebhookUrl = ConfigsTab:CreateInput({
     Name = "Discord Webhook URL",
     PlaceholderText = "https://discord.com/api/webhooks/...",
     Callback = function(val)
         webhookUrl = string.gsub(val or "", "^%s*(.-)%s*$", "%1")
+        ConfigRegistry.WebhookUrl = webhookUrl
+        notifyStateChange("WebhookUrl", webhookUrl)
         Window:Notify({ Title = "Webhook", Content = "URL Webhook disimpan.", Duration = 2 })
     end
 })
 
-ConfigsTab:CreateToggle({
+ToggleObjects.SendOnExec = ConfigsTab:CreateToggle({
     Name = "Kirim Log saat Script Dieksekusi",
     CurrentValue = true,
-    Callback = function(v) sendOnExec = v end
+    Callback = function(v)
+        sendOnExec = v
+        ConfigRegistry.SendOnExec = v
+        notifyStateChange("SendOnExec", v)
+    end
 })
 
-ConfigsTab:CreateToggle({
+ToggleObjects.SendOnWin = ConfigsTab:CreateToggle({
     Name = "Kirim Log saat Auto Win Berhasil",
     CurrentValue = true,
-    Callback = function(v) sendOnWin = v end
+    Callback = function(v)
+        sendOnWin = v
+        ConfigRegistry.SendOnWin = v
+        notifyStateChange("SendOnWin", v)
+    end
 })
 
 local function sendDiscordWebhook(embedData)
@@ -1053,6 +1107,7 @@ ConfigsTab:CreateButton({
             fields = {
                 { name = "Player", value = LocalPlayer.Name .. " (@" .. LocalPlayer.DisplayName .. ")", inline = true },
                 { name = "Game", value = "Blush Canyon", inline = true },
+                { name = "Device ID", value = string.sub(currentDeviceId, 1, 12) .. "...", inline = true },
                 { name = "Place ID", value = tostring(game.PlaceId), inline = true },
                 { name = "Waktu", value = os.date("%H:%M:%S - %d/%m/%Y"), inline = false }
             },
@@ -1065,50 +1120,43 @@ ConfigsTab:CreateButton({
     end
 })
 
-ConfigsTab:CreateSection("Penyimpanan Profil Konfigurasi")
+ConfigsTab:CreateSection("Penyimpanan Profil Konfigurasi (Device Check)")
+ConfigsTab:CreateLabel("Device ID Terdeteksi: " .. string.sub(currentDeviceId, 1, 16) .. "...")
+
 ConfigsTab:CreateButton({
     Name = "Simpan Konfigurasi (Save Config)",
     Callback = function()
-        pcall(function()
-            if writefile then
-                local cfgData = {
-                    WebhookUrl = webhookUrl,
-                    SendOnExec = sendOnExec,
-                    SendOnWin = sendOnWin,
-                    ToggleKey = Window.ToggleKey and Window.ToggleKey.Name or "RightShift"
-                }
-                writefile("unionsal_blush_config.json", game:GetService("HttpService"):JSONEncode(cfgData))
-            end
-        end)
-        Window:Notify({ Title = "Config", Content = "Konfigurasi berhasil disimpan ke file.", Duration = 2 })
+        saveDeviceConfig(true)
     end
 })
 
 ConfigsTab:CreateButton({
     Name = "Muat Konfigurasi (Load Config)",
     Callback = function()
-        local loaded = false
-        pcall(function()
-            if readfile and isfile and isfile("unionsal_blush_config.json") then
-                local data = game:GetService("HttpService"):JSONDecode(readfile("unionsal_blush_config.json"))
-                if data.WebhookUrl then webhookUrl = data.WebhookUrl end
-                if data.ToggleKey and Enum.KeyCode[data.ToggleKey] then
-                    Window.ToggleKey = Enum.KeyCode[data.ToggleKey]
-                end
-                loaded = true
-            end
-        end)
-        Window:Notify({
-            Title = "Config",
-            Content = loaded and "Konfigurasi berhasil dimuat." or "File konfigurasi belum ada.",
-            Duration = 2
-        })
+        loadDeviceConfig(true)
     end
 })
 
--- ╔══════════════════════════════╗
--- ║  NOTIFICATION SIAP           ║
--- ╚══════════════════════════════╝
+ConfigsTab:CreateButton({
+    Name = "Reset Konfigurasi ke Default (Reset Config)",
+    Callback = function()
+        pcall(function()
+            if delfile and isfile and isfile(CONFIG_FILE) then
+                delfile(CONFIG_FILE)
+            end
+        end)
+        Window:Notify({ Title = "Config Reset", Content = "File konfigurasi dihapus. Pengaturan kembali ke default.", Duration = 3 })
+    end
+})
+
+-- ═══════════════════════════════════════════
+--  AUTO-LOAD SAAT EXECUTE (DEVICE VERIFICATION)
+-- ═══════════════════════════════════════════
+task.spawn(function()
+    task.wait(0.5)
+    loadDeviceConfig(true)
+end)
+
 task.wait(0.5)
 Window:Notify({
     Title   = "unionsal",
