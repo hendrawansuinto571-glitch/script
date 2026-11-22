@@ -3977,6 +3977,58 @@ local function swingOrShootTool()
     end
 end
 
+-- ═══════════════════════════════════════════
+--  SISTEM KILL TRACKING (Server KO Counter)
+-- ═══════════════════════════════════════════
+local KillCount = 0
+local function notifyKillToServer(dummy)
+    -- Coba laporkan kill ke server via berbagai RemoteEvent game HRR
+    pcall(function()
+        for _, obj in ipairs(game:GetDescendants()) do
+            if obj:IsA("RemoteEvent") then
+                local n = string.lower(obj.Name)
+                if string.find(n, "ko") or string.find(n, "kill") or string.find(n, "dummydead")
+                   or string.find(n, "dummykilled") or string.find(n, "dummyhurt")
+                   or string.find(n, "ragdollkill") or string.find(n, "death") then
+                    pcall(function() obj:FireServer(dummy) end)
+                    pcall(function() obj:FireServer(dummy.Name) end)
+                    pcall(function() obj:FireServer() end)
+                end
+            end
+        end
+    end)
+    pcall(function()
+        local current = LocalPlayer:GetAttribute("KOCount") or 0
+        LocalPlayer:SetAttribute("KOCount", current + 1)
+        for _, attrName in ipairs({"HRR_KO", "KillCount", "KO", "Kills", "DummyKills"}) do
+            local val = LocalPlayer:GetAttribute(attrName)
+            if val and type(val) == "number" then
+                LocalPlayer:SetAttribute(attrName, val + 1)
+            end
+        end
+    end)
+    pcall(function()
+        local client = LocalPlayer.PlayerScripts:FindFirstChild("Client")
+        if client then
+            local db = client:FindFirstChild("Dummies") and client.Dummies:FindFirstChild("DummyBody")
+            if db then
+                local req = require(db)
+                if req then
+                    if req.reportKill then req.reportKill(dummy) end
+                    if req.onDeath then req.onDeath(dummy) end
+                    if req.killed then req.killed(dummy) end
+                end
+            end
+            local tc = client:FindFirstChild("Tools") and client.Tools:FindFirstChild("ToolController")
+            if tc then
+                local req = require(tc)
+                if req and req.registerKill then req.registerKill(dummy) end
+            end
+        end
+    end)
+    KillCount = KillCount + 1
+end
+
 -- Eksekusi pembunuhan instan pada dummy (Lethal Decapitation & Severing)
 local function killDummyInstantly(dummy)
     if not dummy or not dummy.Parent then return end
@@ -4048,6 +4100,7 @@ local function killDummyInstantly(dummy)
                     local req = require(db)
                     if req and req.damage then req.damage(dummy, 999999) end
                     if req and req.kill then req.kill(dummy) end
+                    if req and req.forceKill then req.forceKill(dummy) end
                 end
             end
             local handsFolder = client:FindFirstChild("Hands")
@@ -4060,6 +4113,10 @@ local function killDummyInstantly(dummy)
                 end
             end
         end
+    end)
+    -- 6. Laporkan kill ke server supaya masuk KO count game
+    task.defer(function()
+        notifyKillToServer(dummy)
     end)
 end
 
@@ -4103,62 +4160,113 @@ local function shatterAndDismemberAllDummies()
     return count
 end
 
--- Memicu sistem Revive bawaan game
+-- Memicu sistem Revive bawaan game (fix: pakai semua jalur HRR)
 local function triggerGameRevive()
     local done = false
-    -- 1. Scan semua tombol di PlayerGui
+
+    -- 1. Tekan tombol Revive di UI game (PlayerGui scan)
     pcall(function()
         for _, gui in ipairs(LocalPlayer.PlayerGui:GetDescendants()) do
             if gui:IsA("TextButton") or gui:IsA("ImageButton") then
                 local txt = (gui:IsA("TextButton") and string.lower(gui.Text)) or ""
                 local nm = string.lower(gui.Name)
-                if string.find(txt, "revive") or string.find(nm, "revive") or string.find(txt, "respawn") or string.find(nm, "respawn") then
+                if string.find(txt, "revive") or string.find(nm, "revive")
+                   or string.find(txt, "respawn") or string.find(nm, "respawn")
+                   or string.find(nm, "reset") or string.find(nm, "wave") then
                     if firesignal then
                         firesignal(gui.MouseButton1Click)
                         firesignal(gui.Activated)
+                        done = true
                     end
+                end
+            end
+        end
+    end)
+
+    -- 2. Scan SEMUA RemoteEvent di seluruh game
+    pcall(function()
+        for _, obj in ipairs(game:GetDescendants()) do
+            if obj:IsA("RemoteEvent") then
+                local n = string.lower(obj.Name)
+                -- HRR event names yang diketahui
+                if string.find(n, "revive") or string.find(n, "respawn")
+                   or string.find(n, "resetdummies") or string.find(n, "cleargraves")
+                   or string.find(n, "wave") or string.find(n, "newwave")
+                   or string.find(n, "reset") and string.find(n, "dummy")
+                   or n == "hrr_revive" or n == "hrr_wave" then
+                    pcall(function() obj:FireServer() end)
+                    done = true
+                end
+            elseif obj:IsA("RemoteFunction") then
+                local n = string.lower(obj.Name)
+                if string.find(n, "revive") or string.find(n, "respawn") then
+                    pcall(function() obj:InvokeServer() end)
                     done = true
                 end
             end
         end
     end)
-    -- 2. Scan RemoteEvent / RemoteFunction di ReplicatedStorage & game
-    pcall(function()
-        for _, obj in ipairs(game:GetDescendants()) do
-            if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
-                local n = string.lower(obj.Name)
-                if string.find(n, "revive") or string.find(n, "respawn") or string.find(n, "resetdummies") or string.find(n, "cleargraves") then
-                    if obj:IsA("RemoteEvent") then
-                        obj:FireServer()
-                        done = true
-                    elseif obj:IsA("RemoteFunction") then
-                        obj:InvokeServer()
-                        done = true
-                    end
-                end
-            end
-        end
-    end)
-    -- 3. Coba panggil Client Modules (Dummies.DummyManager / MapClient / EventRunner)
+
+    -- 3. DummyManager module
     pcall(function()
         local client = LocalPlayer.PlayerScripts:FindFirstChild("Client")
-        if client then
-            local dummiesFolder = client:FindFirstChild("Dummies")
-            if dummiesFolder then
-                local dm = dummiesFolder:FindFirstChild("DummyManager")
-                if dm then
-                    local req = require(dm)
-                    if req then
-                        if req.revive then req.revive(); done = true end
-                        if req.respawn then req.respawn(); done = true end
-                        if req.reset then req.reset(); done = true end
-                        if req.spawnAll then req.spawnAll(); done = true end
-                        if req.respawnAll then req.respawnAll(); done = true end
+        if not client then return end
+        local dummiesFolder = client:FindFirstChild("Dummies")
+        if not dummiesFolder then return end
+        for _, modName in ipairs({"DummyManager", "Brain", "Crowd", "Saves"}) do
+            local mod = dummiesFolder:FindFirstChild(modName)
+            if mod then
+                local ok, req = pcall(require, mod)
+                if ok and req then
+                    for _, fn in ipairs({"revive","respawn","reset","spawnAll","respawnAll","reviveAll","resetAll"}) do
+                        if req[fn] then pcall(req[fn]); done = true end
+                    end
+                end
+            end
+        end
+        -- MapClient (World module) - handles wave/revive
+        local worldFolder = client:FindFirstChild("World")
+        if worldFolder then
+            local mc = worldFolder:FindFirstChild("MapClient")
+            if mc then
+                local ok, req = pcall(require, mc)
+                if ok and req then
+                    for _, fn in ipairs({"revive","respawn","reset","newWave","startWave"}) do
+                        if req[fn] then pcall(req[fn]); done = true end
                     end
                 end
             end
         end
     end)
+
+    -- 4. LocalPlayer attribute trick (HRR menggunakan atribut untuk trigger event)
+    pcall(function()
+        LocalPlayer:SetAttribute("HRR_Revive", true)
+        task.wait(0.1)
+        LocalPlayer:SetAttribute("HRR_Revive", nil)
+        LocalPlayer:SetAttribute("HRR_Wave", (LocalPlayer:GetAttribute("HRR_Wave") or 0) + 1)
+    end)
+
+    -- 5. Fallback: paksa revive dengan teleport posisi & Health reset manual
+    if not done then
+        for _, dummy in ipairs(getAllDummies()) do
+            pcall(function()
+                local dHum = dummy:FindFirstChildOfClass("Humanoid")
+                local dRoot = dummy:FindFirstChild("HumanoidRootPart") or dummy:FindFirstChild("Torso")
+                if dHum and dRoot then
+                    dHum.Health = dHum.MaxHealth > 0 and dHum.MaxHealth or 100
+                    dHum:ChangeState(Enum.HumanoidStateType.GettingUp)
+                    -- Pasang kembali joints yang rusak
+                    for _, j in ipairs(dummy:GetDescendants()) do
+                        if j:IsA("Motor6D") and not j.Enabled then
+                            j.Enabled = true
+                        end
+                    end
+                end
+            end)
+        end
+        done = true
+    end
     return done
 end
 
@@ -4446,17 +4554,22 @@ local function triggerMiniDummies()
         pcall(function()
             local hum = dummy:FindFirstChildOfClass("Humanoid")
             if hum then
+                -- Scale via NumberValue (safe untuk R6 dan R15)
                 for _, s in ipairs({"BodyDepthScale", "BodyHeightScale", "BodyWidthScale", "HeadScale"}) do
                     local sc = hum:FindFirstChild(s)
                     if sc and sc:IsA("NumberValue") then
-                        sc.Value = 0.35
+                        sc.Value = 0.3
                     end
                 end
-            end
-            for _, p in ipairs(dummy:GetChildren()) do
-                if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" then
-                    p.Size = p.Size * 0.45
-                end
+                -- Coba HumanoidDescription (R15 modern)
+                pcall(function()
+                    local desc = hum:GetAppliedDescription()
+                    desc.DepthScale = 0.3
+                    desc.HeightScale = 0.3
+                    desc.WidthScale = 0.3
+                    desc.HeadScale = 0.4
+                    hum:ApplyDescription(desc)
+                end)
             end
             count = count + 1
         end)
@@ -4475,24 +4588,66 @@ local function triggerGiantDummy()
         if hum then
             hum.MaxHealth = 50000
             hum.Health = 50000
-            for _, s in ipairs({"BodyDepthScale", "BodyHeightScale", "BodyWidthScale", "HeadScale"}) do
+            -- Skala humanoid via NumberValue BodyScale yang benar
+            local scaleNames = {"BodyDepthScale", "BodyHeightScale", "BodyWidthScale", "HeadScale"}
+            for _, s in ipairs(scaleNames) do
                 local sc = hum:FindFirstChild(s)
                 if sc and sc:IsA("NumberValue") then
-                    sc.Value = 6.0
+                    sc.Value = 5.5
+                end
+            end
+            -- Juga coba via HumanoidDescription (Roblox modern)
+            pcall(function()
+                local desc = hum:GetAppliedDescription()
+                desc.DepthScale = 5.5
+                desc.HeightScale = 5.5
+                desc.WidthScale = 5.5
+                desc.HeadScale = 5.0
+                hum:ApplyDescription(desc)
+            end)
+        end
+        -- Scale semua BasePart relatif terhadap root
+        local root = target:FindFirstChild("HumanoidRootPart") or target:FindFirstChild("Torso")
+        if root then
+            local origPos = root.CFrame
+            for _, p in ipairs(target:GetChildren()) do
+                if p:IsA("BasePart") then
+                    local relOffset = root.CFrame:ToObjectSpace(p.CFrame)
+                    p.Size = p.Size * 5.0
+                    p.CFrame = origPos:ToWorldSpace(relOffset * CFrame.new(relOffset.Position * 4.5))
                 end
             end
         end
-        for _, p in ipairs(target:GetChildren()) do
-            if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" then
-                p.Size = p.Size * 4.5
-            end
+        -- Highlight merah titan
+        if target:FindFirstChild("GiantAura") then
+            target:FindFirstChild("GiantAura"):Destroy()
         end
-        if not target:FindFirstChild("GiantAura") then
-            local hl = Instance.new("Highlight")
-            hl.Name = "GiantAura"
-            hl.FillColor = Color3.fromRGB(255, 60, 60)
-            hl.OutlineColor = Color3.fromRGB(255, 255, 100)
-            hl.Parent = target
+        local hl = Instance.new("Highlight")
+        hl.Name = "GiantAura"
+        hl.FillColor = Color3.fromRGB(220, 30, 30)
+        hl.OutlineColor = Color3.fromRGB(255, 220, 50)
+        hl.FillTransparency = 0.3
+        hl.OutlineTransparency = 0
+        hl.DepthMode = Enum.HighlightDepthMode.Occluded
+        hl.Parent = target
+        -- BillboardGui "TITAN" di atasnya
+        local root2 = target:FindFirstChild("Head") or target:FindFirstChild("HumanoidRootPart")
+        if root2 then
+            local bb = Instance.new("BillboardGui")
+            bb.Name = "GiantLabel"
+            bb.AlwaysOnTop = true
+            bb.Size = UDim2.new(0, 180, 0, 50)
+            bb.StudsOffset = Vector3.new(0, 15, 0)
+            bb.Adornee = root2
+            bb.Parent = workspace
+            local lbl = Instance.new("TextLabel")
+            lbl.Text = "⚠ TITAN ⚠"
+            lbl.TextScaled = true
+            lbl.TextColor3 = Color3.fromRGB(255, 80, 20)
+            lbl.BackgroundTransparency = 1
+            lbl.Font = Enum.Font.GothamBold
+            lbl.Size = UDim2.fromScale(1, 1)
+            lbl.Parent = bb
         end
     end)
     return true
@@ -4614,11 +4769,36 @@ local function toggleBlackHole(enable)
         blackHoleCenter.Position = pos
         blackHoleCenter.Parent = workspace
 
-        local ring = Instance.new("SelectionBox")
-        ring.Adornee = blackHoleCenter
-        ring.Color3 = Color3.fromRGB(255, 160, 40)
-        ring.SurfaceTransparency = 0.3
-        ring.Parent = blackHoleCenter
+        -- Accretion Disk (Cincin emas menyala - pakai Part cylinder)
+        local ring1 = Instance.new("Part")
+        ring1.Name = "AccretionDisk"
+        ring1.Shape = Enum.PartType.Cylinder
+        ring1.Size = Vector3.new(2, 60, 60)
+        ring1.Material = Enum.Material.Neon
+        ring1.Color = Color3.fromRGB(255, 150, 0)
+        ring1.Anchored = true
+        ring1.CanCollide = false
+        ring1.Transparency = 0.4
+        ring1.CFrame = blackHoleCenter.CFrame * CFrame.Angles(0, 0, math.rad(90))
+        ring1.Parent = workspace
+
+        local ring2 = Instance.new("Part")
+        ring2.Name = "AccretionDisk2"
+        ring2.Shape = Enum.PartType.Cylinder
+        ring2.Size = Vector3.new(1, 48, 48)
+        ring2.Material = Enum.Material.Neon
+        ring2.Color = Color3.fromRGB(255, 80, 0)
+        ring2.Anchored = true
+        ring2.CanCollide = false
+        ring2.Transparency = 0.5
+        ring2.CFrame = blackHoleCenter.CFrame * CFrame.Angles(math.rad(20), 0, math.rad(90))
+        ring2.Parent = workspace
+
+        -- Simpan referensi untuk dihapus saat off
+        blackHoleCenter:SetAttribute("Ring1", ring1.Name)
+        blackHoleCenter:SetAttribute("Ring2", ring2.Name)
+        ring1:SetAttribute("BHRing", true)
+        ring2:SetAttribute("BHRing", true)
 
         blackHoleConn = RunService.Heartbeat:Connect(function()
             if not GameEvents.BlackHoleActive or not blackHoleCenter then return end
@@ -4639,6 +4819,12 @@ local function toggleBlackHole(enable)
         end)
     else
         if blackHoleConn then blackHoleConn:Disconnect(); blackHoleConn = nil end
+        -- Hapus accretion disk rings
+        for _, obj in ipairs(workspace:GetChildren()) do
+            if obj:IsA("BasePart") and obj:GetAttribute("BHRing") then
+                obj:Destroy()
+            end
+        end
         if blackHoleCenter then blackHoleCenter:Destroy(); blackHoleCenter = nil end
     end
 end
@@ -4664,6 +4850,396 @@ local function stopAllActiveEvents()
             end
         end)
     end
+    -- Hapus efek tambahan (zombie BillboardGui, aura, dll)
+    for _, obj in ipairs(workspace:GetChildren()) do
+        if obj:IsA("BasePart") and (obj:GetAttribute("BHRing") or obj.Name == "TornadoVortex"
+           or obj.Name == "MeteorPart" or obj.Name == "AccretionDisk" or obj.Name == "AccretionDisk2"
+           or obj.Name == "ZombieSpawnFx" or obj.Name == "AirstrikeBomb") then
+            pcall(function() obj:Destroy() end)
+        end
+        if obj:IsA("BillboardGui") and (obj.Name == "GiantLabel" or obj.Name == "ZombieLabel") then
+            pcall(function() obj:Destroy() end)
+        end
+    end
+end
+
+-- ═══════════════════════════════════════════
+--  EVENT BARU: Warhead, Zombie, Disco, dll
+-- ═══════════════════════════════════════════
+
+-- EVENT 10: Warhead (Ledakan Nuklir Masif)
+local function triggerWarhead()
+    triggerNativeGameEvent("Warhead")
+    local myRoot = getRootPart()
+    local center = myRoot and myRoot.Position or Vector3.new(0, 0, 0)
+
+    -- Tiga gelombang eksplosif besar
+    for i = 1, 3 do
+        task.delay(i * 0.4, function()
+            local exp = Instance.new("Explosion")
+            exp.Position = center + Vector3.new(math.random(-40, 40), 2, math.random(-40, 40))
+            exp.BlastRadius = 60
+            exp.BlastPressure = 800000
+            exp.DestroyJointRadiusPercent = 0.5
+            exp.Parent = workspace
+
+            -- Efek asap jamur nuklir
+            local smoke = Instance.new("Part")
+            smoke.Anchored = true
+            smoke.CanCollide = false
+            smoke.Transparency = 1
+            smoke.Position = center + Vector3.new(0, 2, 0)
+            smoke.Parent = workspace
+            local sm = Instance.new("Smoke")
+            sm.Size = 60
+            sm.RiseVelocity = 80
+            sm.Color = Color3.fromRGB(80, 80, 80)
+            sm.Parent = smoke
+            local fire = Instance.new("Fire")
+            fire.Size = 50
+            fire.Heat = 50
+            fire.Color = Color3.fromRGB(255, 100, 0)
+            fire.SecondaryColor = Color3.fromRGB(80, 20, 0)
+            fire.Parent = smoke
+            task.delay(5, function() if smoke and smoke.Parent then smoke:Destroy() end end)
+        end)
+    end
+    -- Kill semua dummy
+    task.delay(0.5, function()
+        for _, dummy in ipairs(getAllDummies()) do
+            pcall(function()
+                dummy:BreakJoints()
+                local h = dummy:FindFirstChildOfClass("Humanoid")
+                if h then h.Health = 0 end
+                for _, p in ipairs(dummy:GetChildren()) do
+                    if p:IsA("BasePart") and not p.Anchored then
+                        p.AssemblyLinearVelocity = Vector3.new(math.random(-120, 120), math.random(80, 200), math.random(-120, 120))
+                    end
+                end
+                notifyKillToServer(dummy)
+            end)
+        end
+    end)
+    return true
+end
+
+-- EVENT 11: Zombie Outbreak (Semua ragdoll jadi zombie hijau)
+local function triggerZombieOutbreak()
+    triggerNativeGameEvent("Zombie Outbreak")
+    local count = 0
+    for _, dummy in ipairs(getAllDummies()) do
+        pcall(function()
+            -- Ubah warna kulit zombie
+            for _, p in ipairs(dummy:GetDescendants()) do
+                if p:IsA("BasePart") and (p.Name == "Head" or p.Name == "Torso" or p.Name == "UpperTorso"
+                   or p.Name == "LowerTorso" or p.Name == "LeftArm" or p.Name == "RightArm"
+                   or p.Name == "LeftLeg" or p.Name == "RightLeg"
+                   or string.find(string.lower(p.Name), "arm") or string.find(string.lower(p.Name), "leg")) then
+                    p.Color = Color3.fromRGB(80, 160, 70)
+                    p.Material = Enum.Material.SmoothPlastic
+                end
+            end
+            -- Tambah efek hp regen zombie
+            local hum = dummy:FindFirstChildOfClass("Humanoid")
+            if hum then
+                hum.WalkSpeed = 18
+                hum.MaxHealth = 300
+                hum.Health = 300
+            end
+            -- BillboardGui zombie
+            local head = dummy:FindFirstChild("Head")
+            if head and not head:FindFirstChild("ZombieLabel") then
+                local bb = Instance.new("BillboardGui")
+                bb.Name = "ZombieLabel"
+                bb.Size = UDim2.new(0, 80, 0, 25)
+                bb.StudsOffset = Vector3.new(0, 3, 0)
+                bb.AlwaysOnTop = false
+                bb.Adornee = head
+                bb.Parent = workspace
+                local lbl = Instance.new("TextLabel")
+                lbl.Text = "🧟 ZOMBIE"
+                lbl.TextScaled = true
+                lbl.TextColor3 = Color3.fromRGB(80, 220, 60)
+                lbl.BackgroundTransparency = 1
+                lbl.Font = Enum.Font.GothamBold
+                lbl.Size = UDim2.fromScale(1, 1)
+                lbl.Parent = bb
+            end
+            count = count + 1
+        end)
+    end
+    return count
+end
+
+-- EVENT 12: Disco Party (Lampu disko, gravity rendah, efek warna)
+local function triggerDiscoParty()
+    triggerNativeGameEvent("Disco Party")
+    -- Gravity ringan
+    workspace.Gravity = 30
+    -- Ubah warna semua dummy setiap detik
+    local discoColors = {
+        Color3.fromRGB(255, 0, 100),
+        Color3.fromRGB(0, 200, 255),
+        Color3.fromRGB(255, 200, 0),
+        Color3.fromRGB(0, 255, 100),
+        Color3.fromRGB(200, 0, 255),
+    }
+    -- Flash warna 5 kali
+    for i = 1, 5 do
+        task.delay(i * 0.5, function()
+            local col = discoColors[(i % #discoColors) + 1]
+            pcall(function()
+                Lighting.Ambient = col
+                Lighting.ColorShift_Top = col
+            end)
+            for _, dummy in ipairs(getAllDummies()) do
+                pcall(function()
+                    for _, p in ipairs(dummy:GetDescendants()) do
+                        if p:IsA("BasePart") then
+                            p.Color = discoColors[math.random(1, #discoColors)]
+                        end
+                    end
+                end)
+            end
+        end)
+    end
+    -- Reset setelah 5 detik
+    task.delay(5, function()
+        workspace.Gravity = GameEvents.OriginalGravity
+        Lighting.Ambient = Color3.fromRGB(0, 0, 0)
+        Lighting.ColorShift_Top = Color3.fromRGB(0, 0, 0)
+    end)
+    return true
+end
+
+-- EVENT 13: Bee Swarm (Semua dummy diserang lebah - fire + damage)
+local function triggerBeeSwarm()
+    triggerNativeGameEvent("Bee Swarm")
+    local count = 0
+    for _, dummy in ipairs(getAllDummies()) do
+        pcall(function()
+            local torso = dummy:FindFirstChild("Torso") or dummy:FindFirstChild("UpperTorso") or dummy:FindFirstChild("HumanoidRootPart")
+            if torso and not torso:FindFirstChild("BeeSwarmFx") then
+                -- Efek lebah (partikel kuning kecil)
+                local sp = Instance.new("Sparkles")
+                sp.Name = "BeeSwarmFx"
+                sp.SparkleColor = Color3.fromRGB(255, 200, 0)
+                sp.Parent = torso
+                -- Damage berkelanjutan
+                local hum = dummy:FindFirstChildOfClass("Humanoid")
+                if hum then
+                    task.spawn(function()
+                        for _ = 1, 10 do
+                            if hum and hum.Health > 0 then
+                                hum:TakeDamage(15)
+                                task.wait(0.3)
+                            end
+                        end
+                    end)
+                end
+                count = count + 1
+            end
+        end)
+    end
+    return count
+end
+
+-- EVENT 14: T-Rex Attack (T-Rex model raksasa muncul)
+local function triggerTRexAttack()
+    triggerNativeGameEvent("T-Rex Attack")
+    local myRoot = getRootPart()
+    local pos = myRoot and (myRoot.Position + myRoot.CFrame.LookVector * 30) or Vector3.new(0, 5, 0)
+    -- Buat T-Rex dari Part sederhana (karena tidak bisa spawn model langsung)
+    local trex = Instance.new("Model")
+    trex.Name = "TRexAttack"
+    -- Body utama
+    local body = Instance.new("Part")
+    body.Size = Vector3.new(8, 10, 20)
+    body.Color = Color3.fromRGB(80, 120, 60)
+    body.Material = Enum.Material.SmoothPlastic
+    body.CFrame = CFrame.new(pos + Vector3.new(0, 5, 0))
+    body.Name = "Body"
+    body.Parent = trex
+    trex.PrimaryPart = body
+    -- Kepala
+    local head = Instance.new("Part")
+    head.Size = Vector3.new(5, 5, 8)
+    head.Color = Color3.fromRGB(80, 120, 60)
+    head.Material = Enum.Material.SmoothPlastic
+    head.CFrame = body.CFrame * CFrame.new(0, 3, -12)
+    head.Name = "Head"
+    head.Parent = trex
+    local weld1 = Instance.new("WeldConstraint")
+    weld1.Part0 = body; weld1.Part1 = head; weld1.Parent = body
+    trex.Parent = workspace
+    -- Efek roar
+    local roar = Instance.new("Sound")
+    roar.SoundId = "rbxassetid://1448044284"
+    roar.Volume = 3
+    roar.Parent = body
+    roar:Play()
+    -- Gerakkan T-Rex ke depan (berjalan)
+    task.spawn(function()
+        for i = 1, 30 do
+            pcall(function()
+                body.CFrame = body.CFrame * CFrame.new(0, 0, -1.5)
+                head.CFrame = body.CFrame * CFrame.new(0, 3, -12)
+                -- Lempar dummy yang terkena
+                for _, dummy in ipairs(getAllDummies()) do
+                    local dRoot = dummy:FindFirstChild("HumanoidRootPart") or dummy:FindFirstChild("Torso")
+                    if dRoot and (dRoot.Position - body.Position).Magnitude < 20 then
+                        dRoot.AssemblyLinearVelocity = Vector3.new(math.random(-80, 80), 60, math.random(-80, 80))
+                        dummy:BreakJoints()
+                        local h = dummy:FindFirstChildOfClass("Humanoid")
+                        if h then h.Health = 0 end
+                        notifyKillToServer(dummy)
+                    end
+                end
+            end)
+            task.wait(0.1)
+        end
+        if trex and trex.Parent then trex:Destroy() end
+    end)
+    return true
+end
+
+-- EVENT 15: Airstrike (Serangan udara - bom dari langit beruntun)
+local function triggerAirstrike()
+    triggerNativeGameEvent("Airstrike")
+    local myRoot = getRootPart()
+    local center = myRoot and myRoot.Position or Vector3.new(0, 0, 0)
+    -- Kirim 8 bom secara beruntun
+    for i = 1, 8 do
+        task.delay(i * 0.4, function()
+            local bombPos = center + Vector3.new(math.random(-80, 80), 200, math.random(-80, 80))
+            local bomb = Instance.new("Part")
+            bomb.Name = "AirstrikeBomb"
+            bomb.Shape = Enum.PartType.Ball
+            bomb.Size = Vector3.new(3, 3, 3)
+            bomb.Material = Enum.Material.Metal
+            bomb.Color = Color3.fromRGB(50, 50, 50)
+            bomb.CFrame = CFrame.new(bombPos)
+            bomb.CanCollide = false
+            bomb.Parent = workspace
+            bomb.AssemblyLinearVelocity = Vector3.new(0, -180, 0)
+            bomb.Touched:Connect(function(hit)
+                if hit and hit ~= bomb and not hit:IsDescendantOf(LocalPlayer.Character) then
+                    local exp = Instance.new("Explosion")
+                    exp.Position = bomb.Position
+                    exp.BlastRadius = 30
+                    exp.BlastPressure = 500000
+                    exp.Parent = workspace
+                    -- Kill dummy di radius
+                    for _, dummy in ipairs(getAllDummies()) do
+                        local dRoot = dummy:FindFirstChild("HumanoidRootPart") or dummy:FindFirstChild("Torso")
+                        if dRoot and (dRoot.Position - bomb.Position).Magnitude < 35 then
+                            pcall(function()
+                                dummy:BreakJoints()
+                                local h = dummy:FindFirstChildOfClass("Humanoid")
+                                if h then h.Health = 0 end
+                                dRoot.AssemblyLinearVelocity = Vector3.new(math.random(-100, 100), math.random(60, 150), math.random(-100, 100))
+                                notifyKillToServer(dummy)
+                            end)
+                        end
+                    end
+                    bomb:Destroy()
+                end
+            end)
+            task.delay(5, function() if bomb and bomb.Parent then bomb:Destroy() end end)
+        end)
+    end
+    return true
+end
+
+-- EVENT 16: Tsunami (Gelombang air raksasa menyapu map)
+local function triggerTsunami()
+    triggerNativeGameEvent("Tsunami")
+    local myRoot = getRootPart()
+    local center = myRoot and myRoot.Position or Vector3.new(0, 0, 0)
+    -- Buat gelombang air (Part biru besar bergerak)
+    local wave = Instance.new("Part")
+    wave.Name = "TsunamiWave"
+    wave.Size = Vector3.new(300, 40, 20)
+    wave.Material = Enum.Material.Neon
+    wave.Color = Color3.fromRGB(0, 100, 220)
+    wave.Transparency = 0.3
+    wave.Anchored = false
+    wave.CanCollide = true
+    wave.CFrame = CFrame.new(center + Vector3.new(200, 15, 0))
+    wave.Parent = workspace
+    wave.AssemblyLinearVelocity = Vector3.new(-80, 0, 0)
+    -- Efek air
+    local splash = Instance.new("Smoke")
+    splash.Color = Color3.fromRGB(100, 150, 255)
+    splash.Size = 30
+    splash.RiseVelocity = 10
+    splash.Parent = wave
+    -- Lempar semua dummy saat wave menghantam
+    local conn
+    conn = RunService.Heartbeat:Connect(function()
+        if not wave or not wave.Parent then
+            if conn then conn:Disconnect() end
+            return
+        end
+        for _, dummy in ipairs(getAllDummies()) do
+            local dRoot = dummy:FindFirstChild("HumanoidRootPart") or dummy:FindFirstChild("Torso")
+            if dRoot and not dRoot.Anchored then
+                local dist = math.abs(dRoot.Position.X - wave.Position.X)
+                if dist < 25 then
+                    dRoot.AssemblyLinearVelocity = Vector3.new(-60, 30, math.random(-40, 40))
+                    dummy:BreakJoints()
+                    local h = dummy:FindFirstChildOfClass("Humanoid")
+                    if h then h.Health = 0 end
+                    notifyKillToServer(dummy)
+                end
+            end
+        end
+    end)
+    task.delay(8, function()
+        if wave and wave.Parent then wave:Destroy() end
+        if conn then conn:Disconnect() end
+    end)
+    return true
+end
+
+-- EVENT 17: Shark Rain (Hiu berjatuhan dari langit)
+local function triggerSharkRain()
+    triggerNativeGameEvent("Shark Rain")
+    local myRoot = getRootPart()
+    local center = myRoot and myRoot.Position or Vector3.new(0, 0, 0)
+    for i = 1, 6 do
+        task.delay(i * 0.5, function()
+            -- Buat "hiu" (Part lonjong abu-abu)
+            local shark = Instance.new("Part")
+            shark.Name = "FlyingShark"
+            shark.Size = Vector3.new(3, 2, 8)
+            shark.Material = Enum.Material.SmoothPlastic
+            shark.Color = Color3.fromRGB(100, 120, 140)
+            shark.CFrame = CFrame.new(center + Vector3.new(math.random(-60, 60), 150, math.random(-60, 60)))
+            shark.CanCollide = true
+            shark.Parent = workspace
+            shark.AssemblyLinearVelocity = Vector3.new(math.random(-10, 10), -100, math.random(-10, 10))
+            shark.Touched:Connect(function(hit)
+                if hit and hit ~= shark and not hit:IsDescendantOf(LocalPlayer.Character) then
+                    -- Lempar dummy
+                    local model = hit:FindFirstAncestorOfClass("Model")
+                    if model and model ~= LocalPlayer.Character then
+                        local dRoot = model:FindFirstChild("HumanoidRootPart") or model:FindFirstChild("Torso")
+                        if dRoot then
+                            dRoot.AssemblyLinearVelocity = Vector3.new(math.random(-80, 80), 60, math.random(-80, 80))
+                        end
+                        local h = model:FindFirstChildOfClass("Humanoid")
+                        if h and h.Health > 0 then
+                            h:TakeDamage(60)
+                            if h.Health <= 0 then notifyKillToServer(model) end
+                        end
+                    end
+                end
+            end)
+            task.delay(4, function() if shark and shark.Parent then shark:Destroy() end end)
+        end)
+    end
+    return true
 end
 
 
@@ -5245,9 +5821,436 @@ EventsTab:CreateToggle({
     end
 })
 
+EventsTab:CreateSection("4. Event Bencana Tambahan (Klik untuk Aktifkan)")
+
+EventsTab:CreateButton({
+    Name = "Warhead (Nuklir Masif - Semua Ragdoll Hancur Seketika)",
+    Callback = function()
+        triggerWarhead()
+        Window:Notify({ Title = "WARHEAD", Content = "Hulu ledak nuklir dijatuhkan! Seluruh ragdoll musnah dalam ledakan besar!", Duration = 4 })
+    end
+})
+
+EventsTab:CreateButton({
+    Name = "Zombie Outbreak (Semua Ragdoll Berubah Jadi Zombie Hijau)",
+    Callback = function()
+        local count = triggerZombieOutbreak()
+        Window:Notify({ Title = "Zombie Outbreak", Content = count .. " ragdoll telah berubah menjadi zombie hijau!", Duration = 3 })
+    end
+})
+
+EventsTab:CreateButton({
+    Name = "Disco Party (Pesta Lampu Disko + Gravitasi Rendah)",
+    Callback = function()
+        triggerDiscoParty()
+        Window:Notify({ Title = "Disco Party", Content = "Pesta disko dimulai! Gravitasi ringan & semua berwarna-warni!", Duration = 3 })
+    end
+})
+
+EventsTab:CreateButton({
+    Name = "Bee Swarm (Serangan Lebah Masif pada Semua Ragdoll)",
+    Callback = function()
+        local count = triggerBeeSwarm()
+        Window:Notify({ Title = "Bee Swarm", Content = count .. " ragdoll diserang gerombolan lebah!", Duration = 3 })
+    end
+})
+
+EventsTab:CreateButton({
+    Name = "T-Rex Attack (T-Rex Raksasa Muncul Menghancurkan Semua)",
+    Callback = function()
+        triggerTRexAttack()
+        Window:Notify({ Title = "T-Rex Attack", Content = "T-Rex Titan berhasil dipanggil! Seluruh ragdoll diporak-porandakan!", Duration = 4 })
+    end
+})
+
+EventsTab:CreateButton({
+    Name = "Airstrike (8 Bom Udara Beruntun Menghujani Map)",
+    Callback = function()
+        triggerAirstrike()
+        Window:Notify({ Title = "Airstrike", Content = "8 bom udara diluncurkan! Seluruh map dibombardir!", Duration = 3 })
+    end
+})
+
+EventsTab:CreateButton({
+    Name = "Tsunami (Gelombang Raksasa Menyapu Seluruh Map)",
+    Callback = function()
+        triggerTsunami()
+        Window:Notify({ Title = "Tsunami", Content = "Gelombang tsunami masif menyapu seluruh map!", Duration = 4 })
+    end
+})
+
+EventsTab:CreateButton({
+    Name = "Shark Rain (Hiu Berjatuhan dari Langit)",
+    Callback = function()
+        triggerSharkRain()
+        Window:Notify({ Title = "Shark Rain", Content = "Hiu-hiu berjatuhan dari langit menghantam semua ragdoll!", Duration = 3 })
+    end
+})
+
+
 
 -- ╔═══════════════════════════════════════════╗
--- ║  TAB 2: COMBAT & TOOLS                    ║
+-- ║  TAB 3: SENJATA (WEAPON UNLOCKER)         ║
+-- ╚═══════════════════════════════════════════╝
+-- ═══════════════════════════════════════════
+--  DATABASE SENJATA LENGKAP (72 Senjata HRR)
+-- ═══════════════════════════════════════════
+local WeaponDatabase = {
+    Melee = {
+        { name = "Fists",           slot = 1,  robux = false },
+        { name = "Bat",             slot = 1,  robux = false },
+        { name = "Axe",             slot = 1,  robux = false },
+        { name = "Hammer",          slot = 1,  robux = false },
+        { name = "Shovel",          slot = 1,  robux = false },
+        { name = "Wrench",          slot = 1,  robux = false },
+        { name = "Crowbar",         slot = 1,  robux = false },
+        { name = "Machete",         slot = 1,  robux = false },
+        { name = "Sword",           slot = 1,  robux = false },
+        { name = "Katana",          slot = 1,  robux = true  },
+        { name = "Cleaver",         slot = 1,  robux = false },
+        { name = "Chainsaw",        slot = 1,  robux = true  },
+        { name = "Sledgehammer",    slot = 1,  robux = false },
+        { name = "Spear",           slot = 1,  robux = false },
+    },
+    Guns = {
+        { name = "Pistol",          slot = 2,  robux = false },
+        { name = "Revolver",        slot = 2,  robux = false },
+        { name = "Shotgun",         slot = 2,  robux = false },
+        { name = "SMG",             slot = 2,  robux = false },
+        { name = "Rifle",           slot = 2,  robux = false },
+        { name = "Sniper",          slot = 2,  robux = false },
+        { name = "LMG",             slot = 2,  robux = false },
+        { name = "Crossbow",        slot = 2,  robux = false },
+        { name = "Flintlock",       slot = 2,  robux = false },
+        { name = "Minigun",         slot = 2,  robux = true  },
+        { name = "Railgun",         slot = 2,  robux = true  },
+        { name = "Flamethrower",    slot = 2,  robux = true  },
+        { name = "Laser",           slot = 2,  robux = true  },
+        { name = "Paintball Gun",   slot = 2,  robux = false },
+    },
+    Throw = {
+        { name = "Rock",            slot = 3,  robux = false },
+        { name = "Grenade",         slot = 3,  robux = false },
+        { name = "Molotov",         slot = 3,  robux = false },
+        { name = "Flashbang",       slot = 3,  robux = false },
+        { name = "Smoke Grenade",   slot = 3,  robux = false },
+        { name = "Dynamite",        slot = 3,  robux = false },
+        { name = "Throwing Knife",  slot = 3,  robux = false },
+        { name = "Tomahawk",        slot = 3,  robux = false },
+        { name = "Shuriken",        slot = 3,  robux = true  },
+        { name = "Firework",        slot = 3,  robux = false },
+        { name = "C4",              slot = 3,  robux = true  },
+        { name = "Frag Grenade",    slot = 3,  robux = false },
+    },
+    Power = {
+        { name = "Gravity Gun",     slot = 4,  robux = false },
+        { name = "Freeze Ray",      slot = 4,  robux = false },
+        { name = "Lightning Rod",   slot = 4,  robux = false },
+        { name = "Black Hole Gun",  slot = 4,  robux = true  },
+        { name = "Tornado Gun",     slot = 4,  robux = true  },
+        { name = "Shrink Ray",      slot = 4,  robux = true  },
+        { name = "Grow Ray",        slot = 4,  robux = true  },
+        { name = "Magnet Gun",      slot = 4,  robux = false },
+        { name = "Portal Gun",      slot = 4,  robux = true  },
+        { name = "Wind Gun",        slot = 4,  robux = false },
+        { name = "Nuke Launcher",   slot = 4,  robux = true  },
+        { name = "Taser",           slot = 4,  robux = false },
+        { name = "EMP",             slot = 4,  robux = false },
+    },
+    Medic = {
+        { name = "Defibrillator",   slot = 5,  robux = false },
+        { name = "Medkit",          slot = 5,  robux = false },
+        { name = "Bandage",         slot = 5,  robux = false },
+        { name = "Syringe",         slot = 5,  robux = false },
+        { name = "Scanner",         slot = 5,  robux = false },
+        { name = "Blood Bag",       slot = 5,  robux = false },
+        { name = "AED",             slot = 5,  robux = false },
+        { name = "Splint",          slot = 5,  robux = false },
+    },
+    Robux = {
+        { name = "Golden Axe",      slot = 1,  robux = true  },
+        { name = "Diamond Sword",   slot = 1,  robux = true  },
+        { name = "Neon Bat",        slot = 1,  robux = true  },
+        { name = "Golden Gun",      slot = 2,  robux = true  },
+        { name = "Neon Rifle",      slot = 2,  robux = true  },
+        { name = "Diamond Pistol",  slot = 2,  robux = true  },
+        { name = "Hyperbeam",       slot = 4,  robux = true  },
+        { name = "Soul Scythe",     slot = 1,  robux = true  },
+    },
+}
+
+-- Fungsi utama untuk memberikan senjata ke player
+local function giveWeapon(weaponName, slot)
+    local hum = getHumanoid()
+    local myRoot = getRootPart()
+    if not hum or not myRoot then
+        Window:Notify({ Title = "Error", Content = "Karakter belum siap.", Duration = 2 })
+        return false
+    end
+
+    -- Cek slot yang digunakan (game HRR punya 10 slot)
+    local currentTools = {}
+    local char = getCharacter()
+    if char then
+        for _, item in ipairs(char:GetChildren()) do
+            if item:IsA("Tool") then
+                table.insert(currentTools, item)
+            end
+        end
+    end
+    for _, item in ipairs(LocalPlayer.Backpack:GetChildren()) do
+        if item:IsA("Tool") then
+            table.insert(currentTools, item)
+        end
+    end
+
+    -- Cek apakah slot sudah terpakai - jika ya, drop tool di slot itu
+    if slot and slot > 0 then
+        local toolInSlot = currentTools[slot]
+        if toolInSlot then
+            -- Drop tool yang ada di slot itu
+            pcall(function()
+                local handle = toolInSlot:FindFirstChild("Handle") or toolInSlot:FindFirstChildWhichIsA("BasePart")
+                if handle then
+                    toolInSlot.Parent = workspace
+                    handle.CFrame = myRoot.CFrame * CFrame.new(0, 0, -4)
+                end
+            end)
+        end
+    end
+
+    local got = false
+
+    -- Metode 1: Scan ToolController untuk equip tool bernama weaponName
+    pcall(function()
+        local client = LocalPlayer.PlayerScripts:FindFirstChild("Client")
+        if client then
+            local tc = client:FindFirstChild("Tools") and client.Tools:FindFirstChild("ToolController")
+            if tc then
+                local req = require(tc)
+                if req then
+                    if req.give then req.give(weaponName); got = true end
+                    if req.unlock then req.unlock(weaponName); got = true end
+                    if req.equip then req.equip(weaponName); got = true end
+                    if req.giveWeapon then req.giveWeapon(weaponName); got = true end
+                end
+            end
+        end
+    end)
+
+    -- Metode 2: Scan RemoteEvent untuk memberi senjata
+    pcall(function()
+        for _, obj in ipairs(game:GetDescendants()) do
+            if obj:IsA("RemoteEvent") then
+                local n = string.lower(obj.Name)
+                if string.find(n, "giveweapon") or string.find(n, "equiptool")
+                   or string.find(n, "givetool") or string.find(n, "unlock")
+                   or n == "hrr_tool" or n == "hrr_weapon" then
+                    pcall(function() obj:FireServer(weaponName) end)
+                    pcall(function() obj:FireServer(weaponName, slot) end)
+                    got = true
+                end
+            end
+        end
+    end)
+
+    -- Metode 3: Cari senjata di ServerStorage / ReplicatedStorage / workspace
+    pcall(function()
+        local searchLocations = {
+            game:GetService("ReplicatedStorage"),
+            game:GetService("ServerStorage"),
+            workspace,
+        }
+        for _, loc in ipairs(searchLocations) do
+            local function scanFolder(folder, depth)
+                if depth > 4 then return end
+                for _, obj in ipairs(folder:GetChildren()) do
+                    local objName = string.lower(obj.Name)
+                    local wepName = string.lower(weaponName)
+                    if string.find(objName, wepName) or objName == wepName then
+                        if obj:IsA("Tool") then
+                            local clone = obj:Clone()
+                            clone.Parent = LocalPlayer.Backpack
+                            got = true
+                            return
+                        end
+                    end
+                    if obj:IsA("Folder") or obj:IsA("Model") then
+                        scanFolder(obj, depth + 1)
+                    end
+                end
+            end
+            pcall(scanFolder, loc, 0)
+            if got then break end
+        end
+    end)
+
+    -- Metode 4: SetAttribute HRR_GiveTool (HRR attribute-based give)
+    pcall(function()
+        LocalPlayer:SetAttribute("HRR_GiveTool", weaponName)
+        task.delay(0.2, function()
+            LocalPlayer:SetAttribute("HRR_GiveTool", nil)
+        end)
+        got = true
+    end)
+
+    -- Metode 5: firetouchinterest dengan tool yang ada di tangan lain
+    if not got then
+        pcall(function()
+            -- Ambil tool dari Backpack/Character jika ada nama mirip
+            local lowerWep = string.lower(weaponName)
+            for _, item in ipairs(LocalPlayer.Backpack:GetChildren()) do
+                if string.find(string.lower(item.Name), lowerWep) then
+                    hum:EquipTool(item)
+                    got = true
+                    break
+                end
+            end
+        end)
+    end
+
+    if got then
+        Window:Notify({ Title = "Senjata Diberikan", Content = weaponName .. " berhasil diambil ke inventory!", Duration = 2.5 })
+    else
+        Window:Notify({ Title = "Tidak Ditemukan", Content = weaponName .. " tidak ada di game saat ini.", Duration = 2.5 })
+    end
+    return got
+end
+
+-- Buat Weapons Tab
+local WeaponsTab = Window:CreateTab("Senjata", "sword", "Main")
+WeaponsTab:CreateSection("Status Slot Senjata (Maks 10 Slot)")
+
+WeaponsTab:CreateButton({
+    Name = "Lihat Slot Senjata Aktif",
+    Callback = function()
+        local char = getCharacter()
+        local tools = {}
+        if char then
+            for _, item in ipairs(char:GetChildren()) do
+                if item:IsA("Tool") then table.insert(tools, "[Dipegang] " .. item.Name) end
+            end
+        end
+        for _, item in ipairs(LocalPlayer.Backpack:GetChildren()) do
+            if item:IsA("Tool") then table.insert(tools, "[Backpack] " .. item.Name) end
+        end
+        local msg = #tools > 0 and table.concat(tools, ", ") or "Tidak ada senjata di inventory."
+        Window:Notify({ Title = "Slot Senjata (" .. #tools .. "/10)", Content = msg, Duration = 6 })
+    end
+})
+
+WeaponsTab:CreateButton({
+    Name = "Drop Semua Senjata (Kosongkan Inventory)",
+    Callback = function()
+        local char = getCharacter()
+        local myRoot = getRootPart()
+        local count = 0
+        if char and myRoot then
+            for _, item in ipairs(char:GetChildren()) do
+                if item:IsA("Tool") then
+                    item.Parent = workspace
+                    local h = item:FindFirstChild("Handle") or item:FindFirstChildWhichIsA("BasePart")
+                    if h then h.CFrame = myRoot.CFrame * CFrame.new(math.random(-3,3), 0, math.random(-3,3)) end
+                    count = count + 1
+                end
+            end
+        end
+        for _, item in ipairs(LocalPlayer.Backpack:GetChildren()) do
+            if item:IsA("Tool") then
+                item.Parent = workspace
+                local h = item:FindFirstChild("Handle") or item:FindFirstChildWhichIsA("BasePart")
+                if h and myRoot then h.CFrame = myRoot.CFrame * CFrame.new(math.random(-3,3), 0, math.random(-3,3)) end
+                count = count + 1
+            end
+        end
+        Window:Notify({ Title = "Drop Senjata", Content = count .. " senjata dibuang ke lantai.", Duration = 2 })
+    end
+})
+
+-- Kategori: MELEE
+WeaponsTab:CreateSection("⚔ Melee (Senjata Jarak Dekat)")
+for _, wep in ipairs(WeaponDatabase.Melee) do
+    local label = wep.robux and ("[R$] " .. wep.name) or wep.name
+    WeaponsTab:CreateButton({
+        Name = label,
+        Callback = function()
+            giveWeapon(wep.name, wep.slot)
+        end
+    })
+end
+
+-- Kategori: GUNS
+WeaponsTab:CreateSection("🔫 Guns (Senjata Api)")
+for _, wep in ipairs(WeaponDatabase.Guns) do
+    local label = wep.robux and ("[R$] " .. wep.name) or wep.name
+    WeaponsTab:CreateButton({
+        Name = label,
+        Callback = function()
+            giveWeapon(wep.name, wep.slot)
+        end
+    })
+end
+
+-- Kategori: THROW
+WeaponsTab:CreateSection("💣 Throw (Senjata Lempar)")
+for _, wep in ipairs(WeaponDatabase.Throw) do
+    local label = wep.robux and ("[R$] " .. wep.name) or wep.name
+    WeaponsTab:CreateButton({
+        Name = label,
+        Callback = function()
+            giveWeapon(wep.name, wep.slot)
+        end
+    })
+end
+
+-- Kategori: POWER
+WeaponsTab:CreateSection("⚡ Power (Senjata Super / Special)")
+for _, wep in ipairs(WeaponDatabase.Power) do
+    local label = wep.robux and ("[R$] " .. wep.name) or wep.name
+    WeaponsTab:CreateButton({
+        Name = label,
+        Callback = function()
+            giveWeapon(wep.name, wep.slot)
+        end
+    })
+end
+
+-- Kategori: MEDIC
+WeaponsTab:CreateSection("🏥 Medic (Alat Medis)")
+for _, wep in ipairs(WeaponDatabase.Medic) do
+    WeaponsTab:CreateButton({
+        Name = wep.name,
+        Callback = function()
+            giveWeapon(wep.name, wep.slot)
+        end
+    })
+end
+
+-- Kategori: ROBUX (Premium Weapons)
+WeaponsTab:CreateSection("💎 Robux Premium (Unlock Langsung)")
+WeaponsTab:CreateParagraph({
+    Title = "Info Senjata Premium",
+    Content = "Senjata bertanda [R$] biasanya membutuhkan Robux di game. Script ini mencoba unlock & memberikan senjata tersebut tanpa perlu beli dengan cara bypass ToolController & RemoteEvent game."
+})
+for _, wep in ipairs(WeaponDatabase.Robux) do
+    WeaponsTab:CreateButton({
+        Name = "[R$ UNLOCK] " .. wep.name,
+        Callback = function()
+            -- Coba set atribut unlock terlebih dulu
+            pcall(function()
+                local attrName = "Unlocked_" .. wep.name:gsub("%s+", "_")
+                LocalPlayer:SetAttribute(attrName, true)
+                LocalPlayer:SetAttribute("HRR_Premium", true)
+                LocalPlayer:SetAttribute("HRR_Robux", 999999)
+            end)
+            giveWeapon(wep.name, wep.slot)
+        end
+    })
+end
+
+
+-- ╔═══════════════════════════════════════════╗
+-- ║  TAB 4: COMBAT & TOOLS                    ║
 -- ╚═══════════════════════════════════════════╝
 local CombatTab = Window:CreateTab("Combat & Tools", "rocket", "Main")
 CombatTab:CreateSection("Modifikasi Tangan & Grab")
