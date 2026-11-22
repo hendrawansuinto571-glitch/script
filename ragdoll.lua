@@ -140,7 +140,6 @@ local function findBigFan()
             end
         end
     end
-    -- Fallback titik tinggi tengah map
     return CFrame.new(0, 50, 0)
 end
 
@@ -155,33 +154,11 @@ local function getDroppedTools()
     return tools
 end
 
--- Otomatis gunakan / ayunkan senjata
-local function swingOrShootTool()
-    local char = getCharacter()
-    if not char then return end
-    local tool = char:FindFirstChildOfClass("Tool")
-    if not tool then
-        -- Ambil dari Backpack jika belum di-equip
-        local bpTool = LocalPlayer.Backpack:FindFirstChildOfClass("Tool")
-        if bpTool and getHumanoid() then
-            getHumanoid():EquipTool(bpTool)
-            task.wait(0.05)
-            tool = bpTool
-        end
-    end
-    if tool then
-        pcall(function()
-            tool:Activate()
-        end)
-    end
-end
-
 -- ═══════════════════════════════════════════
 --  SISTEM KILL TRACKING (Server KO Counter)
 -- ═══════════════════════════════════════════
 local KillCount = 0
 local function notifyKillToServer(dummy)
-    -- Coba laporkan kill ke server via berbagai RemoteEvent game HRR
     pcall(function()
         for _, obj in ipairs(game:GetDescendants()) do
             if obj:IsA("RemoteEvent") then
@@ -235,7 +212,6 @@ local function killDummyInstantly(dummy)
     local dHum = dummy:FindFirstChildOfClass("Humanoid")
     local dRoot = dummy:FindFirstChild("HumanoidRootPart") or dummy:FindFirstChild("Torso") or dummy:FindFirstChild("UpperTorso")
 
-    -- 1. Matikan Humanoid seketika
     if dHum then
         pcall(function()
             dHum.Health = 0
@@ -243,7 +219,6 @@ local function killDummyInstantly(dummy)
         end)
     end
 
-    -- 2. Hancurkan sendi leher, kepala & torso (Decapitation / Instant Lethal)
     pcall(function()
         dummy:BreakJoints()
     end)
@@ -258,7 +233,6 @@ local function killDummyInstantly(dummy)
         end
     end
 
-    -- 3. Ayunkan senjata dengan TouchInterest langsung ke kepala & torso dummy
     local char = getCharacter()
     if char then
         local tool = char:FindFirstChildOfClass("Tool") or LocalPlayer.Backpack:FindFirstChildOfClass("Tool")
@@ -279,7 +253,6 @@ local function killDummyInstantly(dummy)
         end
     end
 
-    -- 4. Berikan benturan fisika mematikan ke bawah tanah / void
     for _, part in ipairs(dummy:GetChildren()) do
         if part:IsA("BasePart") and not part.Anchored then
             pcall(function()
@@ -288,7 +261,6 @@ local function killDummyInstantly(dummy)
         end
     end
 
-    -- 5. Panggil modul internal game jika tersedia (Client.Dummies.DummyBody / PlayerHurt)
     pcall(function()
         local client = LocalPlayer.PlayerScripts:FindFirstChild("Client")
         if client then
@@ -313,7 +285,6 @@ local function killDummyInstantly(dummy)
             end
         end
     end)
-    -- 6. Laporkan kill ke server supaya masuk KO count game
     task.defer(function()
         notifyKillToServer(dummy)
     end)
@@ -331,13 +302,11 @@ local function shatterAndDismemberAllDummies()
                 dHum:ChangeState(Enum.HumanoidStateType.Dead)
             end
             dummy:BreakJoints()
-            -- Hancurkan SEMUA Motor6D, Weld, Glue, BallSocketConstraint agar tubuh tercerai-berai
             for _, desc in ipairs(dummy:GetDescendants()) do
                 if desc:IsA("JointInstance") or desc:IsA("Constraint") then
                     desc:Destroy()
                 end
             end
-            -- Beri gaya dorong eksplosif ke setiap potongan tubuh
             for _, part in ipairs(dummy:GetChildren()) do
                 if part:IsA("BasePart") then
                     part.CanCollide = true
@@ -354,12 +323,13 @@ local function shatterAndDismemberAllDummies()
                 end
             end
             count = count + 1
+            notifyKillToServer(dummy)
         end)
     end
     return count
 end
 
--- Memicu sistem Revive bawaan game (fix: pakai semua jalur HRR)
+-- Memicu sistem Revive bawaan game (Keybind R + Remote + Modul)
 local function triggerGameRevive()
     local done = false
 
@@ -387,7 +357,6 @@ local function triggerGameRevive()
         for _, obj in ipairs(game:GetDescendants()) do
             if obj:IsA("RemoteEvent") then
                 local n = string.lower(obj.Name)
-                -- HRR event names yang diketahui
                 if string.find(n, "revive") or string.find(n, "respawn")
                    or string.find(n, "resetdummies") or string.find(n, "cleargraves")
                    or string.find(n, "wave") or string.find(n, "newwave")
@@ -411,19 +380,19 @@ local function triggerGameRevive()
         local client = LocalPlayer.PlayerScripts:FindFirstChild("Client")
         if not client then return end
         local dummiesFolder = client:FindFirstChild("Dummies")
-        if not dummiesFolder then return end
-        for _, modName in ipairs({"DummyManager", "Brain", "Crowd", "Saves"}) do
-            local mod = dummiesFolder:FindFirstChild(modName)
-            if mod then
-                local ok, req = pcall(require, mod)
-                if ok and req then
-                    for _, fn in ipairs({"revive","respawn","reset","spawnAll","respawnAll","reviveAll","resetAll"}) do
-                        if req[fn] then pcall(req[fn]); done = true end
+        if dummiesFolder then
+            for _, modName in ipairs({"DummyManager", "Brain", "Crowd", "Saves"}) do
+                local mod = dummiesFolder:FindFirstChild(modName)
+                if mod then
+                    local ok, req = pcall(require, mod)
+                    if ok and req then
+                        for _, fn in ipairs({"revive","respawn","reset","spawnAll","respawnAll","reviveAll","resetAll"}) do
+                            if req[fn] then pcall(req[fn]); done = true end
+                        end
                     end
                 end
             end
         end
-        -- MapClient (World module) - handles wave/revive
         local worldFolder = client:FindFirstChild("World")
         if worldFolder then
             local mc = worldFolder:FindFirstChild("MapClient")
@@ -441,7 +410,6 @@ local function triggerGameRevive()
     -- 4. Simulasi Keybind R (game HRR: R = Revive All Dummies)
     pcall(function()
         local uis = UserInputService
-        -- Simulate R key press (HRR uses R for Revive)
         if firesignal then
             firesignal(uis.InputBegan, {KeyCode = Enum.KeyCode.R, UserInputType = Enum.UserInputType.Keyboard}, false)
             task.wait(0.05)
@@ -451,27 +419,23 @@ local function triggerGameRevive()
         task.wait(0.1)
         LocalPlayer:SetAttribute("HRR_Revive", nil)
         LocalPlayer:SetAttribute("HRR_Wave", (LocalPlayer:GetAttribute("HRR_Wave") or 0) + 1)
+        done = true
     end)
 
-    -- 5. Fallback: paksa revive dengan teleport posisi & Health reset manual
-    if not done then
-        for _, dummy in ipairs(getAllDummies()) do
-            pcall(function()
-                local dHum = dummy:FindFirstChildOfClass("Humanoid")
-                local dRoot = dummy:FindFirstChild("HumanoidRootPart") or dummy:FindFirstChild("Torso")
-                if dHum and dRoot then
-                    dHum.Health = dHum.MaxHealth > 0 and dHum.MaxHealth or 100
-                    dHum:ChangeState(Enum.HumanoidStateType.GettingUp)
-                    -- Pasang kembali joints yang rusak
-                    for _, j in ipairs(dummy:GetDescendants()) do
-                        if j:IsA("Motor6D") and not j.Enabled then
-                            j.Enabled = true
-                        end
+    -- 5. Fallback: pulihkan Health & joints manual
+    for _, dummy in ipairs(getAllDummies()) do
+        pcall(function()
+            local dHum = dummy:FindFirstChildOfClass("Humanoid")
+            if dHum then
+                dHum.Health = dHum.MaxHealth > 0 and dHum.MaxHealth or 100
+                dHum:ChangeState(Enum.HumanoidStateType.GettingUp)
+                for _, j in ipairs(dummy:GetDescendants()) do
+                    if j:IsA("Motor6D") and not j.Enabled then
+                        j.Enabled = true
                     end
                 end
-            end)
-        end
-        done = true
+            end
+        end)
     end
     return done
 end
@@ -540,45 +504,124 @@ local function clearGravesAndGuns()
     return count
 end
 
-
 -- ═══════════════════════════════════════════
---  SISTEM BENCANA & GAME EVENTS (ALL 9 EVENTS)
+--  SISTEM BENCANA & GAME EVENTS (100% NATIVE GAME ENGINE)
 -- ═══════════════════════════════════════════
 local GameEvents = {
-    WeightlessActive    = false,
-    DeepFreezeActive    = false,
-    FallingDummiesLoop  = false,
-    WildfireActive      = false,
-    MeteorRainLoop      = false,
-    TornadoActive       = false,
-    BlackHoleActive     = false,
-    OriginalGravity     = workspace.Gravity,
+    OriginalGravity = workspace.Gravity,
 }
 
--- Memicu Event Game secara Native (Bypass UI & EventRunner)
+-- Memicu Event Game secara 100% Native dari Game Engine (Tanpa Bikin Sendiri / Anti-Lag)
 local function triggerNativeGameEvent(eventName)
     local triggered = false
+    local lowerName = string.lower(eventName)
     local norm = string.lower(string.gsub(eventName, "%s+", ""))
+    local vim = game:GetService("VirtualInputManager")
 
-    -- 1. Scan PlayerGui untuk tombol event yang sesuai gambar
+    -- 0. Buka UI Events bawaan game jika sedang tertutup
     pcall(function()
         for _, gui in ipairs(LocalPlayer.PlayerGui:GetDescendants()) do
-            if gui:IsA("TextButton") or gui:IsA("ImageButton") then
-                local txt = (gui:IsA("TextButton") and string.lower(gui.Text)) or ""
+            if gui:IsA("GuiButton") then
                 local nm = string.lower(gui.Name)
-                local pnm = (gui.Parent and string.lower(gui.Parent.Name)) or ""
-                if string.find(txt, norm) or string.find(nm, norm) or string.find(pnm, norm) then
+                local txt = (gui:IsA("TextButton") and string.lower(gui.Text)) or ""
+                if nm == "event" or nm == "events" or txt == "events" or string.find(nm, "eventbtn") or string.find(nm, "openevent") then
+                    if vim then
+                        local pos = gui.AbsolutePosition + (gui.AbsoluteSize / 2)
+                        vim:SendMouseButtonEvent(pos.X, pos.Y, 0, true, game, 1)
+                        task.wait(0.02)
+                        vim:SendMouseButtonEvent(pos.X, pos.Y, 0, false, game, 1)
+                    end
                     if firesignal then
                         firesignal(gui.MouseButton1Click)
                         firesignal(gui.Activated)
                     end
+                end
+            end
+        end
+    end)
+
+    -- 1. Scan PlayerGui untuk tombol / kartu event game
+    pcall(function()
+        for _, gui in ipairs(LocalPlayer.PlayerGui:GetDescendants()) do
+            local matched = false
+            if gui:IsA("TextLabel") or gui:IsA("TextButton") then
+                local txt = string.lower(gui.Text)
+                if txt == lowerName or string.find(txt, lowerName, 1, true) or string.find(string.gsub(txt, "%s+", ""), norm, 1, true) then
+                    matched = true
+                end
+            end
+            local nm = string.lower(gui.Name)
+            if nm == lowerName or string.find(nm, norm, 1, true) then
+                matched = true
+            end
+
+            if matched then
+                -- Buka kunci card event dan set token 999
+                pcall(function()
+                    local parentCard = gui:FindFirstAncestorWhichIsA("Frame") or gui.Parent
+                    if parentCard then
+                        for _, child in ipairs(parentCard:GetDescendants()) do
+                            if child:IsA("TextLabel") and (child.Text == "0" or child.Text == "LOCKED") then
+                                child.Text = "999"
+                            end
+                            if child:IsA("ImageLabel") and string.find(string.lower(child.Name), "lock") then
+                                child.Visible = false
+                            end
+                        end
+                    end
+                end)
+
+                local targetBtn = gui:IsA("GuiButton") and gui or gui:FindFirstAncestorWhichIsA("GuiButton")
+                if not targetBtn and gui.Parent then
+                    targetBtn = gui.Parent:FindFirstChildWhichIsA("GuiButton")
+                end
+                if not targetBtn and gui.Parent and gui.Parent.Parent then
+                    targetBtn = gui.Parent.Parent:FindFirstChildWhichIsA("GuiButton")
+                end
+
+                if targetBtn then
+                    targetBtn.Active = true
+                    targetBtn.Selectable = true
+
+                    -- A. Simulasi engine mouse click melalui VirtualInputManager
+                    pcall(function()
+                        if vim then
+                            local pos = targetBtn.AbsolutePosition + (targetBtn.AbsoluteSize / 2)
+                            vim:SendMouseButtonEvent(pos.X, pos.Y, 0, true, game, 1)
+                            task.wait(0.02)
+                            vim:SendMouseButtonEvent(pos.X, pos.Y, 0, false, game, 1)
+                        end
+                    end)
+
+                    -- B. firesignal
+                    pcall(function()
+                        if firesignal then
+                            firesignal(targetBtn.MouseButton1Click)
+                            firesignal(targetBtn.Activated)
+                            firesignal(targetBtn.MouseButton1Down)
+                            firesignal(targetBtn.MouseButton1Up)
+                        end
+                    end)
+
+                    -- C. getconnections
+                    pcall(function()
+                        if getconnections then
+                            for _, sig in ipairs({targetBtn.MouseButton1Click, targetBtn.Activated, targetBtn.MouseButton1Down}) do
+                                for _, conn in ipairs(getconnections(sig)) do
+                                    if conn.Fire then conn:Fire()
+                                    elseif conn.Function then conn.Function() end
+                                end
+                            end
+                        end
+                    end)
+
                     triggered = true
                 end
             end
         end
     end)
 
-    -- 2. Panggil Client.Events.EventRunner jika tersedia
+    -- 2. Panggil Client.Events.EventRunner langsung (ModuleScript bawaan game HRR)
     pcall(function()
         local client = LocalPlayer.PlayerScripts:FindFirstChild("Client")
         if client then
@@ -586,23 +629,23 @@ local function triggerNativeGameEvent(eventName)
             if eventsFolder then
                 local er = eventsFolder:FindFirstChild("EventRunner")
                 if er then
-                    local req = require(er)
-                    if req then
-                        if req.start and typeof(req.start) == "function" then req.start(eventName); triggered = true end
-                        if req.trigger and typeof(req.trigger) == "function" then req.trigger(eventName); triggered = true end
-                        if req.run and typeof(req.run) == "function" then req.run(eventName); triggered = true end
-                        if req[eventName] and typeof(req[eventName]) == "function" then req[eventName](); triggered = true end
-                        if req[norm] and typeof(req[norm]) == "function" then req[norm](); triggered = true end
+                    local ok, req = pcall(require, er)
+                    if ok and req then
+                        if req.start then pcall(req.start, eventName); pcall(req.start, norm); triggered = true end
+                        if req.trigger then pcall(req.trigger, eventName); pcall(req.trigger, norm); triggered = true end
+                        if req.run then pcall(req.run, eventName); pcall(req.run, norm); triggered = true end
+                        if req.fire then pcall(req.fire, eventName); pcall(req.fire, norm); triggered = true end
+                        if req[eventName] then pcall(req[eventName]); triggered = true end
+                        if req[norm] then pcall(req[norm]); triggered = true end
                     end
                 end
-                -- Coba modul spesifik event di dalam folder Events
                 for _, mod in ipairs(eventsFolder:GetChildren()) do
-                    if string.find(string.lower(mod.Name), norm) and mod:IsA("ModuleScript") then
-                        local mReq = require(mod)
-                        if mReq then
-                            if mReq.start then mReq.start(); triggered = true end
-                            if mReq.run then mReq.run(); triggered = true end
-                            if mReq.trigger then mReq.trigger(); triggered = true end
+                    if mod:IsA("ModuleScript") and string.find(string.lower(mod.Name), norm) then
+                        local ok, mReq = pcall(require, mod)
+                        if ok and mReq then
+                            if mReq.start then pcall(mReq.start); triggered = true end
+                            if mReq.run then pcall(mReq.run); triggered = true end
+                            if mReq.trigger then pcall(mReq.trigger); triggered = true end
                         end
                     end
                 end
@@ -610,40 +653,79 @@ local function triggerNativeGameEvent(eventName)
         end
     end)
 
-    -- 3. Scan ReplicatedStorage untuk Remote Event
+    -- 3. Scan ReplicatedStorage untuk RemoteEvent event game
     pcall(function()
         for _, obj in ipairs(game:GetDescendants()) do
-            if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
+            if obj:IsA("RemoteEvent") then
                 local n = string.lower(obj.Name)
-                if string.find(n, "event") or string.find(n, norm) then
-                    if obj:IsA("RemoteEvent") then
-                        obj:FireServer(eventName)
-                        obj:FireServer(norm)
-                        triggered = true
-                    elseif obj:IsA("RemoteFunction") then
-                        obj:InvokeServer(eventName)
-                        triggered = true
-                    end
+                if string.find(n, "event") or string.find(n, "disaster") or string.find(n, norm) then
+                    pcall(function() obj:FireServer(eventName) end)
+                    pcall(function() obj:FireServer(norm) end)
+                    pcall(function() obj:FireServer("Start", eventName) end)
+                    pcall(function() obj:FireServer("Trigger", eventName) end)
+                    pcall(function() obj:FireServer(eventName, true) end)
+                    triggered = true
+                end
+            elseif obj:IsA("RemoteFunction") then
+                local n = string.lower(obj.Name)
+                if string.find(n, "event") or string.find(n, "disaster") or string.find(n, norm) then
+                    pcall(function() obj:InvokeServer(eventName) end)
+                    pcall(function() obj:InvokeServer(norm) end)
+                    triggered = true
                 end
             end
         end
     end)
 
+    -- 4. Buka akses token di attributes
+    pcall(function()
+        LocalPlayer:SetAttribute(eventName, 999)
+        LocalPlayer:SetAttribute(norm, 999)
+        LocalPlayer:SetAttribute("CurrentEvent", eventName)
+        LocalPlayer:SetAttribute("HRR_Event", eventName)
+    end)
+
     return triggered
 end
 
--- Unlock Semua Event Token / Badge secara lokal di UI
+local function runGameEvent(name)
+    local ok = triggerNativeGameEvent(name)
+    Window:Notify({
+        Title = "Game Event",
+        Content = "Event [" .. name .. "] dipicu ke game engine!",
+        Duration = 2.5
+    })
+    return ok
+end
+
+local function stopAllActiveEvents()
+    workspace.Gravity = GameEvents.OriginalGravity
+    pcall(function()
+        triggerNativeGameEvent("Reset")
+        triggerNativeGameEvent("Stop")
+        triggerNativeGameEvent("Clear")
+    end)
+    for _, dummy in ipairs(getAllDummies()) do
+        pcall(function()
+            for _, p in ipairs(dummy:GetDescendants()) do
+                if p:IsA("BasePart") and p.Material == Enum.Material.Ice then
+                    p.Material = Enum.Material.SmoothPlastic
+                    p.Anchored = false
+                end
+            end
+        end)
+    end
+end
+
 local function unlockAllEventTokens()
     local count = 0
     pcall(function()
-        -- Cari atribut token pada LocalPlayer
         for attrName, _ in pairs(LocalPlayer:GetAttributes()) do
             if string.find(string.lower(attrName), "event") or string.find(string.lower(attrName), "token") then
                 LocalPlayer:SetAttribute(attrName, 999)
                 count = count + 1
             end
         end
-        -- Cari badge/counter text di PlayerGui
         for _, label in ipairs(LocalPlayer.PlayerGui:GetDescendants()) do
             if label:IsA("TextLabel") and (label.Text == "0" or label.Text == "1" or label.Text == "LOCKED") then
                 local p = label.Parent
@@ -657,1697 +739,6 @@ local function unlockAllEventTokens()
     return count
 end
 
--- EVENT 1: Weightless (Zero-G)
-local function toggleWeightless(enable)
-    GameEvents.WeightlessActive = enable
-    if enable then
-        workspace.Gravity = 10
-        for _, dummy in ipairs(getAllDummies()) do
-            local root = dummy:FindFirstChild("HumanoidRootPart") or dummy:FindFirstChild("Torso")
-            if root and not root:FindFirstChild("AntiGravForce") then
-                local bf = Instance.new("BodyForce")
-                bf.Name = "AntiGravForce"
-                bf.Force = Vector3.new(0, 196.2 * root:GetMass() * 0.95, 0)
-                bf.Parent = root
-            end
-        end
-    else
-        workspace.Gravity = GameEvents.OriginalGravity
-        for _, dummy in ipairs(getAllDummies()) do
-            for _, f in ipairs(dummy:GetDescendants()) do
-                if f.Name == "AntiGravForce" then f:Destroy() end
-            end
-        end
-    end
-end
-
--- EVENT 2: Deep Freeze
-local function triggerDeepFreeze()
-    triggerNativeGameEvent("Deep Freeze")
-    local count = 0
-    for _, dummy in ipairs(getAllDummies()) do
-        pcall(function()
-            for _, p in ipairs(dummy:GetDescendants()) do
-                if p:IsA("BasePart") then
-                    p.Anchored = true
-                    p.Material = Enum.Material.Ice
-                    p.Color = Color3.fromRGB(160, 230, 255)
-                    if not p:FindFirstChild("FreezeSparkle") then
-                        local sp = Instance.new("Sparkles")
-                        sp.Name = "FreezeSparkle"
-                        sp.SparkleColor = Color3.fromRGB(200, 255, 255)
-                        sp.Parent = p
-                    end
-                end
-            end
-            count = count + 1
-        end)
-    end
-    return count
-end
-
--- EVENT 3: Falling Dummies
-local function spawnFallingDummy()
-    local dummies = getAllDummies()
-    if #dummies == 0 then return end
-    local myRoot = getRootPart()
-    local center = myRoot and myRoot.Position or Vector3.new(0, 10, 0)
-    local target = dummies[math.random(1, #dummies)]
-    local dRoot = target:FindFirstChild("HumanoidRootPart") or target:FindFirstChild("Torso")
-    if dRoot and not dRoot.Anchored then
-        local dropPos = center + Vector3.new(math.random(-60, 60), 220, math.random(-60, 60))
-        dRoot.CFrame = CFrame.new(dropPos)
-        dRoot.AssemblyLinearVelocity = Vector3.new(math.random(-20, 20), -80, math.random(-20, 20))
-        dRoot.AssemblyAngularVelocity = Vector3.new(math.random(-15, 15), math.random(-15, 15), math.random(-15, 15))
-    end
-end
-
--- EVENT 4: Wildfire
-local function triggerWildfire()
-    triggerNativeGameEvent("Wildfire")
-    local count = 0
-    for _, dummy in ipairs(getAllDummies()) do
-        pcall(function()
-            local torso = dummy:FindFirstChild("Torso") or dummy:FindFirstChild("UpperTorso") or dummy:FindFirstChild("HumanoidRootPart")
-            if torso and not torso:FindFirstChild("WildfireFx") then
-                local fire = Instance.new("Fire")
-                fire.Name = "WildfireFx"
-                fire.Size = 8
-                fire.Heat = 15
-                fire.Parent = torso
-
-                local smoke = Instance.new("Smoke")
-                smoke.Name = "WildfireSmoke"
-                smoke.Size = 4
-                smoke.RiseVelocity = 8
-                smoke.Parent = torso
-                count = count + 1
-            end
-            local hum = dummy:FindFirstChildOfClass("Humanoid")
-            if hum then
-                hum:TakeDamage(25)
-            end
-        end)
-    end
-    return count
-end
-
--- EVENT 5: Mini Dummies
-local function triggerMiniDummies()
-    triggerNativeGameEvent("Mini Dummies")
-    local count = 0
-    for _, dummy in ipairs(getAllDummies()) do
-        pcall(function()
-            local hum = dummy:FindFirstChildOfClass("Humanoid")
-            if hum then
-                -- Scale via NumberValue (safe untuk R6 dan R15)
-                for _, s in ipairs({"BodyDepthScale", "BodyHeightScale", "BodyWidthScale", "HeadScale"}) do
-                    local sc = hum:FindFirstChild(s)
-                    if sc and sc:IsA("NumberValue") then
-                        sc.Value = 0.3
-                    end
-                end
-                -- Coba HumanoidDescription (R15 modern)
-                pcall(function()
-                    local desc = hum:GetAppliedDescription()
-                    desc.DepthScale = 0.3
-                    desc.HeightScale = 0.3
-                    desc.WidthScale = 0.3
-                    desc.HeadScale = 0.4
-                    hum:ApplyDescription(desc)
-                end)
-            end
-            count = count + 1
-        end)
-    end
-    return count
-end
-
--- EVENT 6: Giant Dummy
-local function triggerGiantDummy()
-    triggerNativeGameEvent("Giant Dummy")
-    local dummies = getAllDummies()
-    if #dummies == 0 then return false end
-    local target = dummies[math.random(1, #dummies)]
-    pcall(function()
-        local hum = target:FindFirstChildOfClass("Humanoid")
-        if hum then
-            hum.MaxHealth = 50000
-            hum.Health = 50000
-            -- Skala humanoid via NumberValue BodyScale yang benar
-            local scaleNames = {"BodyDepthScale", "BodyHeightScale", "BodyWidthScale", "HeadScale"}
-            for _, s in ipairs(scaleNames) do
-                local sc = hum:FindFirstChild(s)
-                if sc and sc:IsA("NumberValue") then
-                    sc.Value = 5.5
-                end
-            end
-            -- Juga coba via HumanoidDescription (Roblox modern)
-            pcall(function()
-                local desc = hum:GetAppliedDescription()
-                desc.DepthScale = 5.5
-                desc.HeightScale = 5.5
-                desc.WidthScale = 5.5
-                desc.HeadScale = 5.0
-                hum:ApplyDescription(desc)
-            end)
-        end
-        -- Scale semua BasePart relatif terhadap root
-        local root = target:FindFirstChild("HumanoidRootPart") or target:FindFirstChild("Torso")
-        if root then
-            local origPos = root.CFrame
-            for _, p in ipairs(target:GetChildren()) do
-                if p:IsA("BasePart") then
-                    local relOffset = root.CFrame:ToObjectSpace(p.CFrame)
-                    p.Size = p.Size * 5.0
-                    p.CFrame = origPos:ToWorldSpace(relOffset * CFrame.new(relOffset.Position * 4.5))
-                end
-            end
-        end
-        -- Highlight merah titan
-        if target:FindFirstChild("GiantAura") then
-            target:FindFirstChild("GiantAura"):Destroy()
-        end
-        local hl = Instance.new("Highlight")
-        hl.Name = "GiantAura"
-        hl.FillColor = Color3.fromRGB(220, 30, 30)
-        hl.OutlineColor = Color3.fromRGB(255, 220, 50)
-        hl.FillTransparency = 0.3
-        hl.OutlineTransparency = 0
-        hl.DepthMode = Enum.HighlightDepthMode.Occluded
-        hl.Parent = target
-        -- BillboardGui "TITAN" di atasnya
-        local root2 = target:FindFirstChild("Head") or target:FindFirstChild("HumanoidRootPart")
-        if root2 then
-            local bb = Instance.new("BillboardGui")
-            bb.Name = "GiantLabel"
-            bb.AlwaysOnTop = true
-            bb.Size = UDim2.new(0, 180, 0, 50)
-            bb.StudsOffset = Vector3.new(0, 15, 0)
-            bb.Adornee = root2
-            bb.Parent = workspace
-            local lbl = Instance.new("TextLabel")
-            lbl.Text = "[TITAN]"
-            lbl.TextScaled = true
-            lbl.TextColor3 = Color3.fromRGB(255, 80, 20)
-            lbl.BackgroundTransparency = 1
-            lbl.Font = Enum.Font.GothamBold
-            lbl.Size = UDim2.fromScale(1, 1)
-            lbl.Parent = bb
-        end
-    end)
-    return true
-end
-
--- EVENT 7: Meteor Rain
-local function spawnMeteor()
-    local myRoot = getRootPart()
-    local center = myRoot and myRoot.Position or Vector3.new(0, 10, 0)
-    local startPos = center + Vector3.new(math.random(-120, 120), 280, math.random(-120, 120))
-    local targetPos = center + Vector3.new(math.random(-100, 100), 0, math.random(-100, 100))
-
-    local meteor = Instance.new("Part")
-    meteor.Name = "MeteorPart"
-    meteor.Shape = Enum.PartType.Ball
-    meteor.Size = Vector3.new(8, 8, 8)
-    meteor.Material = Enum.Material.Basalt
-    meteor.Color = Color3.fromRGB(45, 35, 30)
-    meteor.CFrame = CFrame.new(startPos)
-    meteor.CanCollide = false
-    meteor.Parent = workspace
-
-    local fire = Instance.new("Fire")
-    fire.Size = 20
-    fire.Heat = 25
-    fire.Parent = meteor
-
-    local smoke = Instance.new("Smoke")
-    smoke.Size = 10
-    smoke.Color = Color3.fromRGB(80, 50, 40)
-    smoke.Parent = meteor
-
-    local dir = (targetPos - startPos).Unit
-    meteor.AssemblyLinearVelocity = dir * 180
-
-    meteor.Touched:Connect(function(hit)
-        if hit and not hit:IsDescendantOf(LocalPlayer.Character) and hit ~= meteor then
-            local exp = Instance.new("Explosion")
-            exp.Position = meteor.Position
-            exp.BlastRadius = 25
-            exp.BlastPressure = 350000
-            exp.Parent = workspace
-            meteor:Destroy()
-        end
-    end)
-
-    task.delay(4, function()
-        if meteor and meteor.Parent then meteor:Destroy() end
-    end)
-end
-
--- EVENT 8: Tornado
-local tornadoCenter = nil
-local tornadoConn = nil
-local function toggleTornado(enable)
-    GameEvents.TornadoActive = enable
-    if enable then
-        triggerNativeGameEvent("Tornado")
-        local myRoot = getRootPart()
-        local centerPos = (myRoot and (myRoot.Position + myRoot.CFrame.LookVector * 25)) or Vector3.new(0, 15, 0)
-
-        tornadoCenter = Instance.new("Part")
-        tornadoCenter.Name = "TornadoVortex"
-        tornadoCenter.Anchored = true
-        tornadoCenter.CanCollide = false
-        tornadoCenter.Transparency = 0.8
-        tornadoCenter.Size = Vector3.new(12, 60, 12)
-        tornadoCenter.Position = centerPos
-        tornadoCenter.Color = Color3.fromRGB(180, 180, 200)
-        tornadoCenter.Parent = workspace
-
-        local smoke = Instance.new("Smoke")
-        smoke.Size = 25
-        smoke.RiseVelocity = 35
-        smoke.Opacity = 0.7
-        smoke.Color = Color3.fromRGB(150, 150, 160)
-        smoke.Parent = tornadoCenter
-
-        tornadoConn = RunService.Heartbeat:Connect(function()
-            if not GameEvents.TornadoActive or not tornadoCenter then return end
-            for _, dummy in ipairs(getAllDummies()) do
-                local dRoot = dummy:FindFirstChild("HumanoidRootPart") or dummy:FindFirstChild("Torso")
-                if dRoot and not dRoot.Anchored then
-                    local offset = dRoot.Position - tornadoCenter.Position
-                    local dist = offset.Magnitude
-                    if dist < 90 then
-                        local tangent = Vector3.new(-offset.Z, 0, offset.X).Unit
-                        local inward = -offset.Unit
-                        local upward = Vector3.new(0, 1, 0)
-                        dRoot.AssemblyLinearVelocity = (tangent * 80) + (inward * 40) + (upward * 65)
-                    end
-                end
-            end
-        end)
-    else
-        if tornadoConn then tornadoConn:Disconnect(); tornadoConn = nil end
-        if tornadoCenter then tornadoCenter:Destroy(); tornadoCenter = nil end
-    end
-end
-
--- EVENT 9: Black Hole
-local blackHoleCenter = nil
-local blackHoleConn = nil
-local function toggleBlackHole(enable)
-    GameEvents.BlackHoleActive = enable
-    if enable then
-        triggerNativeGameEvent("Black Hole")
-        local myRoot = getRootPart()
-        local pos = (myRoot and (myRoot.Position + Vector3.new(0, 30, 0))) or Vector3.new(0, 40, 0)
-
-        blackHoleCenter = Instance.new("Part")
-        blackHoleCenter.Name = "BlackHoleSingularity"
-        blackHoleCenter.Shape = Enum.PartType.Ball
-        blackHoleCenter.Size = Vector3.new(16, 16, 16)
-        blackHoleCenter.Material = Enum.Material.Neon
-        blackHoleCenter.Color = Color3.fromRGB(0, 0, 0)
-        blackHoleCenter.Anchored = true
-        blackHoleCenter.CanCollide = false
-        blackHoleCenter.Position = pos
-        blackHoleCenter.Parent = workspace
-
-        -- Accretion Disk (Cincin emas menyala - pakai Part cylinder)
-        local ring1 = Instance.new("Part")
-        ring1.Name = "AccretionDisk"
-        ring1.Shape = Enum.PartType.Cylinder
-        ring1.Size = Vector3.new(2, 60, 60)
-        ring1.Material = Enum.Material.Neon
-        ring1.Color = Color3.fromRGB(255, 150, 0)
-        ring1.Anchored = true
-        ring1.CanCollide = false
-        ring1.Transparency = 0.4
-        ring1.CFrame = blackHoleCenter.CFrame * CFrame.Angles(0, 0, math.rad(90))
-        ring1.Parent = workspace
-
-        local ring2 = Instance.new("Part")
-        ring2.Name = "AccretionDisk2"
-        ring2.Shape = Enum.PartType.Cylinder
-        ring2.Size = Vector3.new(1, 48, 48)
-        ring2.Material = Enum.Material.Neon
-        ring2.Color = Color3.fromRGB(255, 80, 0)
-        ring2.Anchored = true
-        ring2.CanCollide = false
-        ring2.Transparency = 0.5
-        ring2.CFrame = blackHoleCenter.CFrame * CFrame.Angles(math.rad(20), 0, math.rad(90))
-        ring2.Parent = workspace
-
-        -- Simpan referensi untuk dihapus saat off
-        blackHoleCenter:SetAttribute("Ring1", ring1.Name)
-        blackHoleCenter:SetAttribute("Ring2", ring2.Name)
-        ring1:SetAttribute("BHRing", true)
-        ring2:SetAttribute("BHRing", true)
-
-        blackHoleConn = RunService.Heartbeat:Connect(function()
-            if not GameEvents.BlackHoleActive or not blackHoleCenter then return end
-            for _, dummy in ipairs(getAllDummies()) do
-                local dRoot = dummy:FindFirstChild("HumanoidRootPart") or dummy:FindFirstChild("Torso")
-                if dRoot and not dRoot.Anchored then
-                    local diff = blackHoleCenter.Position - dRoot.Position
-                    local dist = diff.Magnitude
-                    if dist < 180 then
-                        local pull = diff.Unit * math.clamp(2800 / (dist + 5), 50, 350)
-                        dRoot.AssemblyLinearVelocity = pull
-                        if dist < 12 then
-                            dummy:BreakJoints()
-                        end
-                    end
-                end
-            end
-        end)
-    else
-        if blackHoleConn then blackHoleConn:Disconnect(); blackHoleConn = nil end
-        -- Hapus accretion disk rings
-        for _, obj in ipairs(workspace:GetChildren()) do
-            if obj:IsA("BasePart") and obj:GetAttribute("BHRing") then
-                obj:Destroy()
-            end
-        end
-        if blackHoleCenter then blackHoleCenter:Destroy(); blackHoleCenter = nil end
-    end
-end
-
--- Hentikan Semua Bencana Aktif & Pulihkan Map
-local function stopAllActiveEvents()
-    toggleWeightless(false)
-    toggleTornado(false)
-    toggleBlackHole(false)
-    GameEvents.FallingDummiesLoop = false
-    GameEvents.MeteorRainLoop = false
-
-    for _, dummy in ipairs(getAllDummies()) do
-        pcall(function()
-            for _, obj in ipairs(dummy:GetDescendants()) do
-                if obj.Name == "WildfireFx" or obj.Name == "WildfireSmoke" or obj.Name == "FreezeSparkle" or obj.Name == "AntiGravForce" then
-                    obj:Destroy()
-                end
-                if obj:IsA("BasePart") and obj.Material == Enum.Material.Ice then
-                    obj.Material = Enum.Material.SmoothPlastic
-                    obj.Anchored = false
-                end
-            end
-        end)
-    end
-    -- Hapus efek tambahan (zombie BillboardGui, aura, dll)
-    for _, obj in ipairs(workspace:GetChildren()) do
-        if obj:IsA("BasePart") and (obj:GetAttribute("BHRing") or obj.Name == "TornadoVortex"
-           or obj.Name == "MeteorPart" or obj.Name == "AccretionDisk" or obj.Name == "AccretionDisk2"
-           or obj.Name == "ZombieSpawnFx" or obj.Name == "AirstrikeBomb") then
-            pcall(function() obj:Destroy() end)
-        end
-        if obj:IsA("BillboardGui") and (obj.Name == "GiantLabel" or obj.Name == "ZombieLabel") then
-            pcall(function() obj:Destroy() end)
-        end
-    end
-end
-
--- ═══════════════════════════════════════════
---  EVENT BARU: Warhead, Zombie, Disco, dll
--- ═══════════════════════════════════════════
-
--- EVENT 10: Warhead (Ledakan Nuklir Masif)
-local function triggerWarhead()
-    triggerNativeGameEvent("Warhead")
-    local myRoot = getRootPart()
-    local center = myRoot and myRoot.Position or Vector3.new(0, 0, 0)
-
-    -- Tiga gelombang eksplosif besar
-    for i = 1, 3 do
-        task.delay(i * 0.4, function()
-            local exp = Instance.new("Explosion")
-            exp.Position = center + Vector3.new(math.random(-40, 40), 2, math.random(-40, 40))
-            exp.BlastRadius = 60
-            exp.BlastPressure = 800000
-            exp.DestroyJointRadiusPercent = 0.5
-            exp.Parent = workspace
-
-            -- Efek asap jamur nuklir
-            local smoke = Instance.new("Part")
-            smoke.Anchored = true
-            smoke.CanCollide = false
-            smoke.Transparency = 1
-            smoke.Position = center + Vector3.new(0, 2, 0)
-            smoke.Parent = workspace
-            local sm = Instance.new("Smoke")
-            sm.Size = 60
-            sm.RiseVelocity = 80
-            sm.Color = Color3.fromRGB(80, 80, 80)
-            sm.Parent = smoke
-            local fire = Instance.new("Fire")
-            fire.Size = 50
-            fire.Heat = 50
-            fire.Color = Color3.fromRGB(255, 100, 0)
-            fire.SecondaryColor = Color3.fromRGB(80, 20, 0)
-            fire.Parent = smoke
-            task.delay(5, function() if smoke and smoke.Parent then smoke:Destroy() end end)
-        end)
-    end
-    -- Kill semua dummy
-    task.delay(0.5, function()
-        for _, dummy in ipairs(getAllDummies()) do
-            pcall(function()
-                dummy:BreakJoints()
-                local h = dummy:FindFirstChildOfClass("Humanoid")
-                if h then h.Health = 0 end
-                for _, p in ipairs(dummy:GetChildren()) do
-                    if p:IsA("BasePart") and not p.Anchored then
-                        p.AssemblyLinearVelocity = Vector3.new(math.random(-120, 120), math.random(80, 200), math.random(-120, 120))
-                    end
-                end
-                notifyKillToServer(dummy)
-            end)
-        end
-    end)
-    return true
-end
-
--- EVENT 11: Zombie Outbreak (Semua ragdoll jadi zombie hijau)
-local function triggerZombieOutbreak()
-    triggerNativeGameEvent("Zombie Outbreak")
-    local count = 0
-    for _, dummy in ipairs(getAllDummies()) do
-        pcall(function()
-            -- Ubah warna kulit zombie
-            for _, p in ipairs(dummy:GetDescendants()) do
-                if p:IsA("BasePart") and (p.Name == "Head" or p.Name == "Torso" or p.Name == "UpperTorso"
-                   or p.Name == "LowerTorso" or p.Name == "LeftArm" or p.Name == "RightArm"
-                   or p.Name == "LeftLeg" or p.Name == "RightLeg"
-                   or string.find(string.lower(p.Name), "arm") or string.find(string.lower(p.Name), "leg")) then
-                    p.Color = Color3.fromRGB(80, 160, 70)
-                    p.Material = Enum.Material.SmoothPlastic
-                end
-            end
-            -- Tambah efek hp regen zombie
-            local hum = dummy:FindFirstChildOfClass("Humanoid")
-            if hum then
-                hum.WalkSpeed = 18
-                hum.MaxHealth = 300
-                hum.Health = 300
-            end
-            -- BillboardGui zombie
-            local head = dummy:FindFirstChild("Head")
-            if head and not head:FindFirstChild("ZombieLabel") then
-                local bb = Instance.new("BillboardGui")
-                bb.Name = "ZombieLabel"
-                bb.Size = UDim2.new(0, 80, 0, 25)
-                bb.StudsOffset = Vector3.new(0, 3, 0)
-                bb.AlwaysOnTop = false
-                bb.Adornee = head
-                bb.Parent = workspace
-                local lbl = Instance.new("TextLabel")
-                lbl.Text = "ZOMBIE"
-                lbl.TextScaled = true
-                lbl.TextColor3 = Color3.fromRGB(80, 220, 60)
-                lbl.BackgroundTransparency = 1
-                lbl.Font = Enum.Font.GothamBold
-                lbl.Size = UDim2.fromScale(1, 1)
-                lbl.Parent = bb
-            end
-            count = count + 1
-        end)
-    end
-    return count
-end
-
--- EVENT 12: Disco Party (Lampu disko, gravity rendah, efek warna)
-local function triggerDiscoParty()
-    triggerNativeGameEvent("Disco Party")
-    -- Gravity ringan
-    workspace.Gravity = 30
-    -- Ubah warna semua dummy setiap detik
-    local discoColors = {
-        Color3.fromRGB(255, 0, 100),
-        Color3.fromRGB(0, 200, 255),
-        Color3.fromRGB(255, 200, 0),
-        Color3.fromRGB(0, 255, 100),
-        Color3.fromRGB(200, 0, 255),
-    }
-    -- Flash warna 5 kali
-    for i = 1, 5 do
-        task.delay(i * 0.5, function()
-            local col = discoColors[(i % #discoColors) + 1]
-            pcall(function()
-                Lighting.Ambient = col
-                Lighting.ColorShift_Top = col
-            end)
-            for _, dummy in ipairs(getAllDummies()) do
-                pcall(function()
-                    for _, p in ipairs(dummy:GetDescendants()) do
-                        if p:IsA("BasePart") then
-                            p.Color = discoColors[math.random(1, #discoColors)]
-                        end
-                    end
-                end)
-            end
-        end)
-    end
-    -- Reset setelah 5 detik
-    task.delay(5, function()
-        workspace.Gravity = GameEvents.OriginalGravity
-        Lighting.Ambient = Color3.fromRGB(0, 0, 0)
-        Lighting.ColorShift_Top = Color3.fromRGB(0, 0, 0)
-    end)
-    return true
-end
-
--- EVENT 13: Bee Swarm (Semua dummy diserang lebah - fire + damage)
-local function triggerBeeSwarm()
-    triggerNativeGameEvent("Bee Swarm")
-    local count = 0
-    for _, dummy in ipairs(getAllDummies()) do
-        pcall(function()
-            local torso = dummy:FindFirstChild("Torso") or dummy:FindFirstChild("UpperTorso") or dummy:FindFirstChild("HumanoidRootPart")
-            if torso and not torso:FindFirstChild("BeeSwarmFx") then
-                -- Efek lebah (partikel kuning kecil)
-                local sp = Instance.new("Sparkles")
-                sp.Name = "BeeSwarmFx"
-                sp.SparkleColor = Color3.fromRGB(255, 200, 0)
-                sp.Parent = torso
-                -- Damage berkelanjutan
-                local hum = dummy:FindFirstChildOfClass("Humanoid")
-                if hum then
-                    task.spawn(function()
-                        for _ = 1, 10 do
-                            if hum and hum.Health > 0 then
-                                hum:TakeDamage(15)
-                                task.wait(0.3)
-                            end
-                        end
-                    end)
-                end
-                count = count + 1
-            end
-        end)
-    end
-    return count
-end
-
--- EVENT 14: T-Rex Attack (T-Rex visual proper + no lag)
-local function triggerTRexAttack()
-    triggerNativeGameEvent("T-Rex Attack")
-    local myRoot = getRootPart()
-    local startPos = myRoot and (myRoot.Position + myRoot.CFrame.LookVector * 60) or Vector3.new(60, 5, 0)
-
-    -- Buat T-Rex dari Part-Part yang di-weld (lebih nyata)
-    local trexModel = Instance.new("Model")
-    trexModel.Name = "HRR_TRex"
-    trexModel.Parent = workspace
-
-    local function makePart(size, color, cframeOffset, parent)
-        local p = Instance.new("Part")
-        p.Size = size
-        p.Color = color
-        p.Material = Enum.Material.SmoothPlastic
-        p.Anchored = false
-        p.CanCollide = false
-        p.Parent = parent or trexModel
-        return p
-    end
-
-    local GREEN = Color3.fromRGB(55, 110, 50)
-    local DARKGREEN = Color3.fromRGB(40, 85, 38)
-
-    -- Tubuh utama
-    local body = makePart(Vector3.new(10, 12, 22), GREEN)
-    body.Name = "TRexBody"
-    body.Anchored = true
-    body.CFrame = CFrame.new(startPos + Vector3.new(0, 7, 0))
-    trexModel.PrimaryPart = body
-
-    -- Kepala (moncong panjang)
-    local head = makePart(Vector3.new(6, 7, 14), GREEN)
-    head.Name = "TRexHead"
-    head.CFrame = body.CFrame * CFrame.new(0, 4, -16)
-    local w1 = Instance.new("WeldConstraint"); w1.Part0=body; w1.Part1=head; w1.Parent=body
-
-    -- Rahang bawah
-    local jaw = makePart(Vector3.new(5, 2, 12), DARKGREEN)
-    jaw.CFrame = body.CFrame * CFrame.new(0, 0, -17)
-    local wj = Instance.new("WeldConstraint"); wj.Part0=body; wj.Part1=jaw; wj.Parent=body
-
-    -- Ekor panjang
-    local tail = makePart(Vector3.new(5, 6, 20), GREEN)
-    tail.CFrame = body.CFrame * CFrame.new(0, -2, 20)
-    local w2 = Instance.new("WeldConstraint"); w2.Part0=body; w2.Part1=tail; w2.Parent=body
-
-    -- Kaki depan (2)
-    local legFL = makePart(Vector3.new(3, 8, 3), DARKGREEN)
-    legFL.CFrame = body.CFrame * CFrame.new(-5, -8, -6)
-    local wfl = Instance.new("WeldConstraint"); wfl.Part0=body; wfl.Part1=legFL; wfl.Parent=body
-    local legFR = makePart(Vector3.new(3, 8, 3), DARKGREEN)
-    legFR.CFrame = body.CFrame * CFrame.new(5, -8, -6)
-    local wfr = Instance.new("WeldConstraint"); wfr.Part0=body; wfr.Part1=legFR; wfr.Parent=body
-
-    -- Kaki belakang (2 - lebih besar)
-    local legBL = makePart(Vector3.new(5, 14, 5), DARKGREEN)
-    legBL.CFrame = body.CFrame * CFrame.new(-5, -11, 6)
-    local wbl = Instance.new("WeldConstraint"); wbl.Part0=body; wbl.Part1=legBL; wbl.Parent=body
-    local legBR = makePart(Vector3.new(5, 14, 5), DARKGREEN)
-    legBR.CFrame = body.CFrame * CFrame.new(5, -11, 6)
-    local wbr = Instance.new("WeldConstraint"); wbr.Part0=body; wbr.Part1=legBR; wbr.Parent=body
-
-    -- Lengan kecil (T-Rex arms)
-    local armL = makePart(Vector3.new(2, 5, 2), DARKGREEN)
-    armL.CFrame = body.CFrame * CFrame.new(-6, 2, -6)
-    local wal = Instance.new("WeldConstraint"); wal.Part0=body; wal.Part1=armL; wal.Parent=body
-    local armR = makePart(Vector3.new(2, 5, 2), DARKGREEN)
-    armR.CFrame = body.CFrame * CFrame.new(6, 2, -6)
-    local war = Instance.new("WeldConstraint"); war.Part0=body; war.Part1=armR; war.Parent=body
-
-    -- Mata (neon merah)
-    local eyeL = makePart(Vector3.new(1.5, 1.5, 1.5), Color3.fromRGB(255, 30, 30))
-    eyeL.Material = Enum.Material.Neon
-    eyeL.CFrame = body.CFrame * CFrame.new(-2.5, 5, -22)
-    local wel = Instance.new("WeldConstraint"); wel.Part0=body; wel.Part1=eyeL; wel.Parent=body
-    local eyeR = makePart(Vector3.new(1.5, 1.5, 1.5), Color3.fromRGB(255, 30, 30))
-    eyeR.Material = Enum.Material.Neon
-    eyeR.CFrame = body.CFrame * CFrame.new(2.5, 5, -22)
-    local wer = Instance.new("WeldConstraint"); wer.Part0=body; wer.Part1=eyeR; wer.Parent=body
-
-    -- Suara roar
-    pcall(function()
-        local roar = Instance.new("Sound")
-        roar.SoundId = "rbxassetid://1448044284"
-        roar.Volume = 5
-        roar.Parent = body
-        roar:Play()
-    end)
-
-    -- Gerak T-Rex ke arah spawn (task.delay bukan loop Heartbeat = no lag)
-    local stepCount = 25
-    local stepDelay = 0.18
-    for i = 1, stepCount do
-        task.delay(i * stepDelay, function()
-            if not trexModel or not trexModel.Parent or not body or not body.Parent then return end
-            pcall(function()
-                body.CFrame = body.CFrame * CFrame.new(0, 0, -2.5)
-                -- Cek dummy di sekitar
-                for _, dummy in ipairs(getAllDummies()) do
-                    local dRoot = dummy:FindFirstChild("HumanoidRootPart") or dummy:FindFirstChild("Torso")
-                    if dRoot and (dRoot.Position - body.Position).Magnitude < 25 then
-                        pcall(function()
-                            dRoot.AssemblyLinearVelocity = Vector3.new(math.random(-100,100), 80, math.random(-100,100))
-                            dummy:BreakJoints()
-                            local h = dummy:FindFirstChildOfClass("Humanoid")
-                            if h then h.Health = 0 end
-                            notifyKillToServer(dummy)
-                        end)
-                    end
-                end
-            end)
-        end)
-    end
-
-    -- Hancurkan setelah selesai
-    task.delay(stepCount * stepDelay + 2, function()
-        if trexModel and trexModel.Parent then trexModel:Destroy() end
-    end)
-    return true
-end
-
--- EVENT 15: Airstrike (Serangan udara - bom dari langit beruntun)
-local function triggerAirstrike()
-    triggerNativeGameEvent("Airstrike")
-    local myRoot = getRootPart()
-    local center = myRoot and myRoot.Position or Vector3.new(0, 0, 0)
-    -- Kirim 8 bom secara beruntun
-    for i = 1, 8 do
-        task.delay(i * 0.4, function()
-            local bombPos = center + Vector3.new(math.random(-80, 80), 200, math.random(-80, 80))
-            local bomb = Instance.new("Part")
-            bomb.Name = "AirstrikeBomb"
-            bomb.Shape = Enum.PartType.Ball
-            bomb.Size = Vector3.new(3, 3, 3)
-            bomb.Material = Enum.Material.Metal
-            bomb.Color = Color3.fromRGB(50, 50, 50)
-            bomb.CFrame = CFrame.new(bombPos)
-            bomb.CanCollide = false
-            bomb.Parent = workspace
-            bomb.AssemblyLinearVelocity = Vector3.new(0, -180, 0)
-            bomb.Touched:Connect(function(hit)
-                if hit and hit ~= bomb and not hit:IsDescendantOf(LocalPlayer.Character) then
-                    local exp = Instance.new("Explosion")
-                    exp.Position = bomb.Position
-                    exp.BlastRadius = 30
-                    exp.BlastPressure = 500000
-                    exp.Parent = workspace
-                    -- Kill dummy di radius
-                    for _, dummy in ipairs(getAllDummies()) do
-                        local dRoot = dummy:FindFirstChild("HumanoidRootPart") or dummy:FindFirstChild("Torso")
-                        if dRoot and (dRoot.Position - bomb.Position).Magnitude < 35 then
-                            pcall(function()
-                                dummy:BreakJoints()
-                                local h = dummy:FindFirstChildOfClass("Humanoid")
-                                if h then h.Health = 0 end
-                                dRoot.AssemblyLinearVelocity = Vector3.new(math.random(-100, 100), math.random(60, 150), math.random(-100, 100))
-                                notifyKillToServer(dummy)
-                            end)
-                        end
-                    end
-                    bomb:Destroy()
-                end
-            end)
-            task.delay(5, function() if bomb and bomb.Parent then bomb:Destroy() end end)
-        end)
-    end
-    return true
-end
-
--- EVENT 16: Tsunami (Gelombang air raksasa visual beneran)
-local function triggerTsunami()
-    triggerNativeGameEvent("Tsunami")
-    local myRoot = getRootPart()
-    local center = myRoot and myRoot.Position or Vector3.new(0, 0, 0)
-
-    -- Model tsunami: 3 lapis gelombang
-    local waveModel = Instance.new("Model")
-    waveModel.Name = "HRR_Tsunami"
-    waveModel.Parent = workspace
-
-    local startX = center.X + 250
-    local stepsTsunami = 40
-    local stepDelay = 0.12
-
-    -- Buat 3 lapis gelombang (depan, tengah, belakang)
-    local waveParts = {}
-    local layerOffsets = {0, 15, 30} -- Z offset
-    local layerColors = {
-        Color3.fromRGB(0, 80, 220),
-        Color3.fromRGB(0, 110, 255),
-        Color3.fromRGB(80, 160, 255),
-    }
-    local layerSizes = {
-        Vector3.new(350, 50, 25),
-        Vector3.new(350, 35, 20),
-        Vector3.new(350, 20, 15),
-    }
-    local layerTransparency = {0.2, 0.35, 0.5}
-
-    for i, zOff in ipairs(layerOffsets) do
-        local w = Instance.new("Part")
-        w.Name = "TsunamiLayer" .. i
-        w.Size = layerSizes[i]
-        w.Material = Enum.Material.Neon
-        w.Color = layerColors[i]
-        w.Transparency = layerTransparency[i]
-        w.Anchored = true
-        w.CanCollide = false
-        w.CFrame = CFrame.new(startX, center.Y + 20, center.Z + zOff)
-        w.Parent = waveModel
-        table.insert(waveParts, w)
-
-        -- Efek busa di puncak
-        local foam = Instance.new("Part")
-        foam.Size = Vector3.new(350, 8, 10)
-        foam.Material = Enum.Material.Neon
-        foam.Color = Color3.fromRGB(220, 240, 255)
-        foam.Transparency = 0.1
-        foam.Anchored = true
-        foam.CanCollide = false
-        foam.CFrame = CFrame.new(startX, center.Y + 42, center.Z + zOff - 5)
-        foam.Parent = waveModel
-        table.insert(waveParts, foam)
-    end
-
-    -- Gerakkan gelombang dengan task.delay (no Heartbeat lag)
-    for step = 1, stepsTsunami do
-        task.delay(step * stepDelay, function()
-            if not waveModel or not waveModel.Parent then return end
-            local newX = startX - (step * 6.5) -- bergerak ke kiri
-            pcall(function()
-                for _, wp in ipairs(waveParts) do
-                    if wp and wp.Parent then
-                        wp.CFrame = CFrame.new(newX, wp.Position.Y, wp.Position.Z)
-                    end
-                end
-            end)
-            -- Di titik tertentu, lempar semua dummy
-            if step >= 5 then
-                for _, dummy in ipairs(getAllDummies()) do
-                    local dRoot = dummy:FindFirstChild("HumanoidRootPart") or dummy:FindFirstChild("Torso")
-                    if dRoot and not dRoot.Anchored then
-                        local distX = math.abs(dRoot.Position.X - newX)
-                        if distX < 50 then
-                            pcall(function()
-                                dRoot.AssemblyLinearVelocity = Vector3.new(-80, 40, math.random(-50, 50))
-                                dummy:BreakJoints()
-                                local h = dummy:FindFirstChildOfClass("Humanoid")
-                                if h then h.Health = 0 end
-                                notifyKillToServer(dummy)
-                            end)
-                        end
-                    end
-                end
-            end
-        end)
-    end
-
-    -- Cleanup
-    task.delay(stepsTsunami * stepDelay + 2, function()
-        if waveModel and waveModel.Parent then waveModel:Destroy() end
-    end)
-    return true
-end
-
--- EVENT 17: Shark Rain (Hiu proper visual berjatuhan dari langit)
-local function triggerSharkRain()
-    triggerNativeGameEvent("Shark Rain")
-    local myRoot = getRootPart()
-    local center = myRoot and myRoot.Position or Vector3.new(0, 0, 0)
-
-    local function spawnShark(offsetX, offsetZ)
-        local sharkModel = Instance.new("Model")
-        sharkModel.Name = "HRR_Shark"
-        sharkModel.Parent = workspace
-
-        local GREY = Color3.fromRGB(90, 115, 135)
-        local LIGHTGREY = Color3.fromRGB(200, 210, 220)
-        local startPos = center + Vector3.new(offsetX, 180, offsetZ)
-
-        -- Body utama hiu (lonjong)
-        local body = Instance.new("Part")
-        body.Name = "SharkBody"
-        body.Size = Vector3.new(4, 3, 14)
-        body.Material = Enum.Material.SmoothPlastic
-        body.Color = GREY
-        body.Anchored = true
-        body.CanCollide = false
-        body.CFrame = CFrame.new(startPos)
-        body.Parent = sharkModel
-        sharkModel.PrimaryPart = body
-
-        -- Perut putih
-        local belly = Instance.new("Part")
-        belly.Size = Vector3.new(3.5, 1.5, 12)
-        belly.Color = LIGHTGREY
-        belly.Material = Enum.Material.SmoothPlastic
-        belly.Anchored = true; belly.CanCollide = false
-        belly.CFrame = body.CFrame * CFrame.new(0, -1.2, 0)
-        belly.Parent = sharkModel
-        local wb = Instance.new("WeldConstraint"); wb.Part0=body; wb.Part1=belly; wb.Parent=body
-
-        -- Sirip atas
-        local finTop = Instance.new("Part")
-        finTop.Size = Vector3.new(0.5, 5, 4)
-        finTop.Color = GREY
-        finTop.Material = Enum.Material.SmoothPlastic
-        finTop.Anchored = true; finTop.CanCollide = false
-        finTop.CFrame = body.CFrame * CFrame.new(0, 3.5, -1)
-        finTop.Parent = sharkModel
-        local wft = Instance.new("WeldConstraint"); wft.Part0=body; wft.Part1=finTop; wft.Parent=body
-
-        -- Sirip samping kiri
-        local finL = Instance.new("Part")
-        finL.Size = Vector3.new(5, 0.5, 3)
-        finL.Color = GREY
-        finL.Material = Enum.Material.SmoothPlastic
-        finL.Anchored = true; finL.CanCollide = false
-        finL.CFrame = body.CFrame * CFrame.new(-4, 0, 0)
-        finL.Parent = sharkModel
-        local wfL = Instance.new("WeldConstraint"); wfL.Part0=body; wfL.Part1=finL; wfL.Parent=body
-
-        -- Sirip samping kanan
-        local finR = Instance.new("Part")
-        finR.Size = Vector3.new(5, 0.5, 3)
-        finR.Color = GREY
-        finR.Material = Enum.Material.SmoothPlastic
-        finR.Anchored = true; finR.CanCollide = false
-        finR.CFrame = body.CFrame * CFrame.new(4, 0, 0)
-        finR.Parent = sharkModel
-        local wfR = Instance.new("WeldConstraint"); wfR.Part0=body; wfR.Part1=finR; wfR.Parent=body
-
-        -- Ekor
-        local tail = Instance.new("Part")
-        tail.Size = Vector3.new(0.5, 5, 5)
-        tail.Color = GREY
-        tail.Material = Enum.Material.SmoothPlastic
-        tail.Anchored = true; tail.CanCollide = false
-        tail.CFrame = body.CFrame * CFrame.new(0, 0, 8)
-        tail.Parent = sharkModel
-        local wt = Instance.new("WeldConstraint"); wt.Part0=body; wt.Part1=tail; wt.Parent=body
-
-        -- Mata (hitam pekat)
-        local eye = Instance.new("Part")
-        eye.Size = Vector3.new(0.6, 0.6, 0.3)
-        eye.Color = Color3.fromRGB(0,0,0)
-        eye.Material = Enum.Material.SmoothPlastic
-        eye.Anchored = true; eye.CanCollide = false
-        eye.CFrame = body.CFrame * CFrame.new(-2, 0.8, -5.5)
-        eye.Parent = sharkModel
-        local we = Instance.new("WeldConstraint"); we.Part0=body; we.Part1=eye; we.Parent=body
-
-        -- Jatuh dengan task.delay (no lag)
-        local steps = 35
-        local dropDelay = 0.08
-        local hasHit = false
-        for step = 1, steps do
-            task.delay(step * dropDelay, function()
-                if not sharkModel or not sharkModel.Parent or hasHit then return end
-                pcall(function()
-                    local newY = startPos.Y - (step * 5.5)
-                    body.CFrame = CFrame.new(startPos.X, newY, startPos.Z)
-                    -- Cek tabrakan dengan dummy
-                    if newY < center.Y + 15 then
-                        for _, dummy in ipairs(getAllDummies()) do
-                            local dRoot = dummy:FindFirstChild("HumanoidRootPart") or dummy:FindFirstChild("Torso")
-                            if dRoot then
-                                local dist = (dRoot.Position - body.Position).Magnitude
-                                if dist < 20 and not hasHit then
-                                    hasHit = true
-                                    pcall(function()
-                                        dRoot.AssemblyLinearVelocity = Vector3.new(math.random(-100,100), 80, math.random(-100,100))
-                                        dummy:BreakJoints()
-                                        local h = dummy:FindFirstChildOfClass("Humanoid")
-                                        if h then h.Health = 0 end
-                                        notifyKillToServer(dummy)
-                                    end)
-                                end
-                            end
-                        end
-                        -- Ledakan kecil saat mendarat
-                        if newY < center.Y + 5 then
-                            hasHit = true
-                            local exp = Instance.new("Explosion")
-                            exp.Position = body.Position
-                            exp.BlastRadius = 15
-                            exp.BlastPressure = 150000
-                            exp.Parent = workspace
-                        end
-                    end
-                end)
-            end)
-        end
-
-        -- Cleanup
-        task.delay(steps * dropDelay + 3, function()
-            if sharkModel and sharkModel.Parent then sharkModel:Destroy() end
-        end)
-    end
-
-    -- Spawn 5 hiu dengan interval
-    for i = 1, 5 do
-        task.delay(i * 0.7, function()
-            spawnShark(math.random(-80, 80), math.random(-80, 80))
-        end)
-    end
-    return true
-end
-
-
--- ═══════════════════════════════════════════
---  DEVICE ID RESOLVER & CONFIG MANAGER
--- ═══════════════════════════════════════════
-local function getClientDeviceId()
-    local hwid = ""
-    pcall(function()
-        hwid = game:GetService("RbxAnalyticsService"):GetClientId()
-    end)
-    if not hwid or hwid == "" or hwid == "00000000-0000-0000-0000-000000000000" then
-        pcall(function()
-            if gethwid then hwid = gethwid() end
-        end)
-    end
-    if not hwid or hwid == "" then
-        pcall(function()
-            if identifyexecutor then hwid = identifyexecutor() .. "_" .. tostring(LocalPlayer.UserId) end
-        end)
-    end
-    if not hwid or hwid == "" then
-        hwid = "DEV_" .. tostring(LocalPlayer.UserId)
-    end
-    return tostring(hwid)
-end
-
-local currentDeviceId = getClientDeviceId()
-local CONFIG_FILE = "unionsal_ragdoll_device_config.json"
-
-local ConfigRegistry = {
-    AutoKill = false,
-    FlingAll = false,
-    FanToss = false,
-    KillDelay = 0.2,
-    SuperGrab = false,
-    AntiRagdoll = false,
-    FastAttack = false,
-    Fly = false,
-    FlySpeed = 50,
-    NoClip = false,
-    SpinBot = false,
-    SpinSpeed = 30,
-    WalkSpeed = 16,
-    Fullbright = false,
-    Fov = 70,
-    ToolsEsp = false,
-    PlayerEsp = false,
-    AntiAfk = true,
-    FpsBoost = false,
-    PotatoGraphics = false,
-    AutoSave = true,
-    WebhookUrl = "",
-    SendOnExec = true,
-    SendOnKo = true,
-    ToggleKey = "RightShift"
-}
-
-local ToggleObjects = {}
-local SliderObjects = {}
-local InputObjects = {}
-
-local function saveDeviceConfig(showNotification)
-    local payload = {
-        DeviceId = currentDeviceId,
-        PlayerName = LocalPlayer.Name,
-        UserId = LocalPlayer.UserId,
-        SavedAt = os.time(),
-        Settings = ConfigRegistry
-    }
-    local ok = pcall(function()
-        if writefile then
-            writefile(CONFIG_FILE, HttpService:JSONEncode(payload))
-            return true
-        end
-        return false
-    end)
-    if showNotification then
-        if ok then
-            Window:Notify({ Title = "Config Tersimpan", Content = "Pengaturan berhasil disimpan untuk device ini (" .. string.sub(currentDeviceId, 1, 8) .. "...)", Duration = 3 })
-        else
-            Window:Notify({ Title = "Config Error", Content = "Executor kamu tidak memiliki izin writefile.", Duration = 3 })
-        end
-    end
-    return ok
-end
-
-local function loadDeviceConfig(showNotification)
-    local ok, content = pcall(function()
-        if readfile and isfile and isfile(CONFIG_FILE) then
-            return readfile(CONFIG_FILE)
-        end
-        return nil
-    end)
-    if not ok or not content or content == "" then
-        return false, "Belum ada file"
-    end
-
-    local parseOk, parsed = pcall(function()
-        return HttpService:JSONDecode(content)
-    end)
-    if not parseOk or not parsed or typeof(parsed) ~= "table" then
-        return false, "Format tidak valid"
-    end
-
-    if parsed.DeviceId == currentDeviceId then
-        if parsed.Settings and typeof(parsed.Settings) == "table" then
-            for k, val in pairs(parsed.Settings) do
-                ConfigRegistry[k] = val
-                if ToggleObjects[k] then
-                    pcall(function() ToggleObjects[k]:Set(val, true) end)
-                end
-                if SliderObjects[k] then
-                    pcall(function() SliderObjects[k]:Set(val, true) end)
-                end
-                if InputObjects[k] then
-                    pcall(function() InputObjects[k]:Set(val, true) end)
-                end
-            end
-            if parsed.Settings.ToggleKey and Enum.KeyCode[parsed.Settings.ToggleKey] then
-                Window.ToggleKey = Enum.KeyCode[parsed.Settings.ToggleKey]
-            end
-        end
-        if showNotification then
-            Window:Notify({ Title = "Config Dimuat", Content = "Device terverifikasi! Konfigurasi tersimpan otomatis aktif.", Duration = 4 })
-        end
-        return true, "Success"
-    else
-        pcall(function()
-            if delfile then delfile(CONFIG_FILE) end
-        end)
-        if showNotification then
-            Window:Notify({ Title = "Device Berbeda", Content = "Device berbeda terdeteksi! Semua pengaturan di-reset ke default.", Duration = 4 })
-        end
-        return false, "Device Mismatch"
-    end
-end
-
-local function notifyStateChange(k, v)
-    ConfigRegistry[k] = v
-    if ConfigRegistry.AutoSave then
-        task.spawn(function()
-            saveDeviceConfig(false)
-        end)
-    end
-end
-
--- ═══════════════════════════════════════════
---  OPTIMASI GRAFIK POTATO & FPS BOOST
--- ═══════════════════════════════════════════
-local function applyPotatoGraphics(enable)
-    local Terrain = workspace:FindFirstChildOfClass("Terrain")
-
-    if enable then
-        pcall(function()
-            settings().Rendering.QualityLevel = 1
-        end)
-        pcall(function()
-            Lighting.GlobalShadows = false
-            Lighting.FogEnd = 9e9
-            Lighting.Brightness = 1
-        end)
-        for _, v in ipairs(Lighting:GetChildren()) do
-            if v:IsA("PostEffect") or v:IsA("BloomEffect") or v:IsA("ColorCorrectionEffect") or v:IsA("SunRaysEffect") or v:IsA("BlurEffect") or v:IsA("DepthOfFieldEffect") then
-                v.Enabled = false
-            end
-        end
-        if Terrain then
-            pcall(function()
-                Terrain.Decoration = false
-                Terrain.WaterWaveSize = 0
-                Terrain.WaterWaveSpeed = 0
-                Terrain.WaterReflectance = 0
-            end)
-        end
-        for _, obj in ipairs(workspace:GetDescendants()) do
-            if obj:IsA("BasePart") and not obj:IsDescendantOf(LocalPlayer.Character or workspace) then
-                pcall(function()
-                    obj.Material = Enum.Material.SmoothPlastic
-                    obj.CastShadow = false
-                end)
-            elseif obj:IsA("Decal") or obj:IsA("Texture") then
-                pcall(function() obj.Transparency = 1 end)
-            elseif obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Smoke") or obj:IsA("Fire") or obj:IsA("Sparkles") then
-                pcall(function() obj.Enabled = false end)
-            end
-        end
-    else
-        pcall(function()
-            Lighting.GlobalShadows = true
-            Lighting.FogEnd = 1000
-        end)
-        for _, v in ipairs(Lighting:GetChildren()) do
-            if v:IsA("PostEffect") then v.Enabled = true end
-        end
-        if Terrain then
-            pcall(function() Terrain.Decoration = true end)
-        end
-    end
-end
-
-local function applyFpsBoost(enable)
-    if enable then
-        pcall(function()
-            settings().Rendering.QualityLevel = 1
-            Lighting.GlobalShadows = false
-        end)
-    else
-        pcall(function()
-            settings().Rendering.QualityLevel = 0
-            Lighting.GlobalShadows = true
-        end)
-    end
-end
-
--- Forward-declare sendDiscordWebhook (defined fully in Configs tab below)
-local sendDiscordWebhook
-local webhookUrl = ""
-local sendOnExec = true
-local sendOnKo = true
-
--- ╔═══════════════════════════════════════════╗
--- ║  TAB 1: DUMMIES & KO (AUTO FARM)          ║
--- ╚═══════════════════════════════════════════╝
-local FarmTab = Window:CreateTab("Auto Farm", "sprout", "Main")
-FarmTab:CreateSection("Auto Kill (Teleport & Instant Kill)")
-
-ToggleObjects.AutoKill = FarmTab:CreateToggle({
-    Name = "Auto Kill Ragdoll (Teleport & Langsung Mati)",
-    CurrentValue = false,
-    Callback = function(v)
-        RagdollGame.AutoKillRunning = v
-        notifyStateChange("AutoKill", v)
-        Window:Notify({ Title = "Auto Kill", Content = v and "Auto Kill AKTIF! Karakter TP dan ragdoll langsung mati seketika." or "Auto Kill nonaktif.", Duration = 2 })
-
-        if v then
-            task.spawn(function()
-                while RagdollGame.AutoKillRunning do
-                    local dummies = getLivingDummies()
-                    if #dummies > 0 then
-                        for _, dummy in ipairs(dummies) do
-                            if not RagdollGame.AutoKillRunning then break end
-                            local root = getRootPart()
-                            local dRoot = dummy:FindFirstChild("HumanoidRootPart") or dummy:FindFirstChild("Torso") or dummy:FindFirstChild("UpperTorso") or dummy:FindFirstChild("Head")
-
-                            if root and dRoot and dummy.Parent then
-                                -- 1. Teleport langsung ke posisi ragdoll
-                                root.CFrame = dRoot.CFrame * CFrame.new(0, 1, 2)
-                                task.wait(0.03)
-
-                                -- 2. Eksekusi INSTANT KILL langsung seketika!
-                                killDummyInstantly(dummy)
-
-                                -- 3. Notifikasi Webhook jika aktif
-                                if ConfigRegistry.SendOnKo and ConfigRegistry.WebhookUrl ~= "" then
-                                    sendDiscordWebhook({
-                                        title = "[KO] Ragdoll Eliminated",
-                                        description = "Target: **" .. dummy.Name .. "**",
-                                        color = 0xFF3333,
-                                        footer = { text = "Unionsal Hub • .gg/unionsal" }
-                                    })
-                                end
-
-                                task.wait(RagdollGame.KillDelay)
-                            end
-                        end
-                    else
-                        task.wait(0.5)
-                    end
-                end
-            end)
-        end
-    end
-})
-
-SliderObjects.KillDelay = FarmTab:CreateSlider({
-    Name = "Jeda Antar Target Ragdoll",
-    Range = {0.05, 1.5},
-    Increment = 0.05,
-    Suffix = " detik",
-    CurrentValue = 0.15,
-    Callback = function(v)
-        RagdollGame.KillDelay = v
-        notifyStateChange("KillDelay", v)
-    end
-})
-
-FarmTab:CreateSection("Shatter & Kill All (Hancurkan Seluruh Tubuh)")
-
-FarmTab:CreateButton({
-    Name = "Kill All Ragdoll (Hancurkan Seluruh Tubuh Seketika)",
-    Callback = function()
-        local count = shatterAndDismemberAllDummies()
-        Window:Notify({ Title = "Shatter Kill All", Content = count .. " ragdoll berhasil dibunuh & tubuhnya hancur berkeping-keping!", Duration = 3.5 })
-    end
-})
-
-local loopShatterRunning = false
-FarmTab:CreateToggle({
-    Name = "Loop Shatter All (Hancurkan Semua Terus Menerus)",
-    CurrentValue = false,
-    Callback = function(v)
-        loopShatterRunning = v
-        Window:Notify({ Title = "Loop Shatter", Content = v and "Loop Shatter AKTIF! Semua ragdoll yang muncul akan langsung hancur." or "Loop Shatter nonaktif.", Duration = 2 })
-        if v then
-            task.spawn(function()
-                while loopShatterRunning do
-                    shatterAndDismemberAllDummies()
-                    task.wait(0.3)
-                end
-            end)
-        end
-    end
-})
-
-FarmTab:CreateButton({
-    Name = "Fling All Ragdoll (Lontarkan Semua ke Langit)",
-    Callback = function()
-        local count = 0
-        for _, dummy in ipairs(getAllDummies()) do
-            local dRoot = dummy:FindFirstChild("HumanoidRootPart") or dummy:FindFirstChild("Torso")
-            if dRoot and not dRoot.Anchored then
-                dRoot.AssemblyLinearVelocity = Vector3.new(math.random(-60, 60), 350, math.random(-60, 60))
-                dRoot.AssemblyAngularVelocity = Vector3.new(math.random(-80, 80), math.random(-80, 80), math.random(-80, 80))
-                count = count + 1
-            end
-        end
-        Window:Notify({ Title = "Fling Ragdoll", Content = count .. " ragdoll dilontarkan ke langit!", Duration = 3 })
-    end
-})
-
-FarmTab:CreateSection("Revive & Respawn Sistem")
-
-FarmTab:CreateButton({
-    Name = "Revive All Ragdoll (R - Bangkitkan Seluruh Ragdoll)",
-    Callback = function()
-        local ok = triggerGameRevive()
-        Window:Notify({ Title = "Revive All", Content = ok and "Sinyal Revive [R] dikirim! Seluruh ragdoll dibangkitkan." or "Memicu revive fallback...", Duration = 3 })
-    end
-})
-
-FarmTab:CreateButton({
-    Name = "Scan Dummy Terdekat (V - Buka Scan Menu)",
-    Callback = function()
-        -- Simulasi V key (HRR: V = Scan Dummy)
-        pcall(function()
-            if firesignal then
-                firesignal(UserInputService.InputBegan, {KeyCode = Enum.KeyCode.V, UserInputType = Enum.UserInputType.Keyboard}, false)
-                task.wait(0.05)
-                firesignal(UserInputService.InputEnded, {KeyCode = Enum.KeyCode.V, UserInputType = Enum.UserInputType.Keyboard}, false)
-            end
-        end)
-        -- Juga coba via GUI scan button
-        pcall(function()
-            for _, gui in ipairs(LocalPlayer.PlayerGui:GetDescendants()) do
-                if gui:IsA("TextButton") or gui:IsA("ImageButton") then
-                    local n = string.lower(gui.Name)
-                    local t = gui:IsA("TextButton") and string.lower(gui.Text) or ""
-                    if string.find(n, "scan") or string.find(t, "scan") or string.find(n, "xray") then
-                        if firesignal then firesignal(gui.MouseButton1Click) end
-                    end
-                end
-            end
-        end)
-        Window:Notify({ Title = "Scan", Content = "Tombol V ditekan - Scan dummy aktif!", Duration = 2 })
-    end
-})
-
-FarmTab:CreateButton({
-    Name = "Defibrillator Mass Revive (Kejut Jantung Semua Ragdoll)",
-    Callback = function()
-        local count = massDefibrillatorRevive()
-        Window:Notify({ Title = "Defibrillator Revive", Content = count .. " ragdoll berhasil diselamatkan/di-revive dengan Defibrillator!", Duration = 3 })
-    end
-})
-
-FarmTab:CreateButton({
-    Name = "Respawn Karakter (G - Instan)",
-    Callback = function()
-        -- Simulasi G key (HRR: G = Respawn Karakter)
-        pcall(function()
-            if firesignal then
-                firesignal(UserInputService.InputBegan, {KeyCode = Enum.KeyCode.G, UserInputType = Enum.UserInputType.Keyboard}, false)
-                task.wait(0.05)
-                firesignal(UserInputService.InputEnded, {KeyCode = Enum.KeyCode.G, UserInputType = Enum.UserInputType.Keyboard}, false)
-            end
-        end)
-        -- Fallback: health = 0
-        task.wait(0.1)
-        local hum = getHumanoid()
-        if hum and hum.Health > 0 then
-            hum.Health = 0
-        end
-        Window:Notify({ Title = "Respawn", Content = "Karakter di-respawn! (Tombol G + fallback)", Duration = 1.5 })
-    end
-})
-
-FarmTab:CreateButton({
-    Name = "Clear Graves & Dropped Guns (Bersihkan Map)",
-    Callback = function()
-        local count = clearGravesAndGuns()
-        Window:Notify({ Title = "Clear Map", Content = count .. " kuburan/senjata di lantai dibersihkan!", Duration = 3 })
-    end
-})
-
-FarmTab:CreateSection("Fisika & Interaksi Massal")
-
-FarmTab:CreateButton({
-    Name = "Bring All Dummies (Kumpulkan di Depan Pemain)",
-    Callback = function()
-        local myRoot = getRootPart()
-        if not myRoot then return end
-        local count = 0
-        for _, dummy in ipairs(getAllDummies()) do
-            local dRoot = dummy:FindFirstChild("HumanoidRootPart") or dummy:FindFirstChild("Torso")
-            if dRoot and not dRoot.Anchored then
-                dRoot.CFrame = myRoot.CFrame * CFrame.new(0, 0, -4)
-                count = count + 1
-            end
-        end
-        Window:Notify({ Title = "Bring Dummies", Content = count .. " dummy berhasil dikumpulkan di depanmu!", Duration = 3 })
-    end
-})
-
-FarmTab:CreateButton({
-    Name = "Yeet All Dummies to Big Fan (Hancurkan di Kipas)",
-    Callback = function()
-        local fanCf = findBigFan()
-        local count = 0
-        for _, dummy in ipairs(getAllDummies()) do
-            local dRoot = dummy:FindFirstChild("HumanoidRootPart") or dummy:FindFirstChild("Torso")
-            if dRoot and not dRoot.Anchored then
-                dRoot.CFrame = fanCf
-                count = count + 1
-            end
-        end
-        Window:Notify({ Title = "Big Fan Toss", Content = count .. " dummy dilempar ke bilah kipas raksasa!", Duration = 3 })
-    end
-})
-
-FarmTab:CreateButton({
-    Name = "Freeze All Dummies (Lumpuhkan AI Bergerak)",
-    Callback = function()
-        local count = 0
-        for _, dummy in ipairs(getAllDummies()) do
-            for _, p in ipairs(dummy:GetDescendants()) do
-                if p:IsA("BasePart") then
-                    p.Anchored = true
-                end
-            end
-            count = count + 1
-        end
-        Window:Notify({ Title = "Freeze Dummies", Content = count .. " dummy berhasil dibekukan!", Duration = 3 })
-    end
-})
-
-FarmTab:CreateButton({
-    Name = "Unfreeze All Dummies (Pulihkan AI)",
-    Callback = function()
-        for _, dummy in ipairs(getAllDummies()) do
-            for _, p in ipairs(dummy:GetDescendants()) do
-                if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" then
-                    p.Anchored = false
-                end
-            end
-        end
-        Window:Notify({ Title = "Unfreeze", Content = "AI dummy dipulihkan normal.", Duration = 2 })
-    end
-})
-
--- ╔═══════════════════════════════════════════╗
--- ║  TAB 2: EVENTS & BENCANA MAP              ║
--- ╚═══════════════════════════════════════════╝
-local EventsTab = Window:CreateTab("Events", "zap", "Main")
-EventsTab:CreateSection("Bypass & Kontrol Seluruh Event")
-
-EventsTab:CreateButton({
-    Name = "Unlock All In-Game Event Tokens (999x Penggunaan)",
-    Callback = function()
-        local c = unlockAllEventTokens()
-        Window:Notify({ Title = "Events Unlocked", Content = "Berhasil meng-unlock token event di UI/Client! (" .. c .. " items)", Duration = 3 })
-    end
-})
-
-EventsTab:CreateButton({
-    Name = "Hentikan Semua Bencana Aktif (Reset Map Damai)",
-    Callback = function()
-        stopAllActiveEvents()
-        Window:Notify({ Title = "Events Reset", Content = "Seluruh bencana dihentikan. Map dikembalikan ke normal.", Duration = 2.5 })
-    end
-})
-
-EventsTab:CreateSection("1. Gravitasi dan Cuaca Ekstrem")
-
-EventsTab:CreateToggle({
-    Name = "Weightless (Gravitasi Nol / Melayang Bebas)",
-    CurrentValue = false,
-    Callback = function(v)
-        triggerNativeGameEvent("Weightless")
-        toggleWeightless(v)
-        Window:Notify({ Title = "Weightless", Content = v and "Zero-G AKTIF! Semua ragdoll melayang bebas di udara." or "Gravitasi normal kembali.", Duration = 2 })
-    end
-})
-
-EventsTab:CreateButton({
-    Name = "Deep Freeze (Bekukan Semua Ragdoll Menjadi Es)",
-    Callback = function()
-        local count = triggerDeepFreeze()
-        Window:Notify({ Title = "Deep Freeze", Content = count .. " ragdoll berhasil dibekukan menjadi patung es!", Duration = 3 })
-    end
-})
-
-EventsTab:CreateButton({
-    Name = "Wildfire (Bakar Seluruh Ragdoll dengan Api Membara)",
-    Callback = function()
-        local count = triggerWildfire()
-        Window:Notify({ Title = "Wildfire", Content = count .. " ragdoll dilalap api kebakaran membara!", Duration = 3 })
-    end
-})
-
-EventsTab:CreateSection("2. Modifikasi Ukuran dan Hujan Ragdoll")
-
-EventsTab:CreateButton({
-    Name = "Falling Dummies (Jatuhkan Hujan Dummy Sekali)",
-    Callback = function()
-        triggerNativeGameEvent("Falling Dummies")
-        for i = 1, 5 do
-            spawnFallingDummy()
-            task.wait(0.05)
-        end
-        Window:Notify({ Title = "Falling Dummies", Content = "Hujan dummy dijatuhkan dari langit!", Duration = 2 })
-    end
-})
-
-local fallingDummiesLoop = false
-EventsTab:CreateToggle({
-    Name = "Loop Falling Dummies (Hujan Dummy Terus Menerus)",
-    CurrentValue = false,
-    Callback = function(v)
-        fallingDummiesLoop = v
-        Window:Notify({ Title = "Falling Dummies", Content = v and "Hujan dummy terus menerus AKTIF!" or "Hujan dummy dihentikan.", Duration = 2 })
-        if v then
-            task.spawn(function()
-                while fallingDummiesLoop do
-                    spawnFallingDummy()
-                    task.wait(0.6)
-                end
-            end)
-        end
-    end
-})
-
-EventsTab:CreateButton({
-    Name = "Mini Dummies (Ubah Semua Ragdoll Menjadi Kerdil)",
-    Callback = function()
-        local count = triggerMiniDummies()
-        Window:Notify({ Title = "Mini Dummies", Content = count .. " ragdoll diubah menjadi ukuran kerdil/chibi!", Duration = 3 })
-    end
-})
-
-EventsTab:CreateButton({
-    Name = "Giant Dummy (Bangkitkan Dummy Raksasa Titan)",
-    Callback = function()
-        local ok = triggerGiantDummy()
-        Window:Notify({ Title = "Giant Dummy", Content = ok and "Dummy Raksasa Titan berhasil dibangkitkan!" or "Tidak ada dummy di map.", Duration = 3 })
-    end
-})
-
-EventsTab:CreateSection("3. Bencana Kosmik dan Kehancuran Massal")
-
-EventsTab:CreateButton({
-    Name = "Meteor Rain (Panggil Hujan Meteor Sekali)",
-    Callback = function()
-        triggerNativeGameEvent("Meteor Rain")
-        for i = 1, 4 do
-            spawnMeteor()
-            task.wait(0.2)
-        end
-        Window:Notify({ Title = "Meteor Rain", Content = "Hujan meteor berapi menghujani map!", Duration = 3 })
-    end
-})
-
-local meteorRainLoop = false
-EventsTab:CreateToggle({
-    Name = "Loop Meteor Rain (Hujan Meteor Beruntun)",
-    CurrentValue = false,
-    Callback = function(v)
-        meteorRainLoop = v
-        Window:Notify({ Title = "Meteor Rain", Content = v and "Hujan meteor beruntun AKTIF!" or "Hujan meteor dihentikan.", Duration = 2 })
-        if v then
-            task.spawn(function()
-                while meteorRainLoop do
-                    spawnMeteor()
-                    task.wait(1.2)
-                end
-            end)
-        end
-    end
-})
-
-EventsTab:CreateToggle({
-    Name = "Tornado (Puting Beliung Penghisap Seluruh Objek)",
-    CurrentValue = false,
-    Callback = function(v)
-        toggleTornado(v)
-        Window:Notify({ Title = "Tornado", Content = v and "Puting Beliung AKTIF! Menghisap seluruh ragdoll & objek ke pusaran angin." or "Tornado dihentikan.", Duration = 2.5 })
-    end
-})
-
-EventsTab:CreateToggle({
-    Name = "Black Hole (Singularitas Kosmik Penelan Map)",
-    CurrentValue = false,
-    Callback = function(v)
-        toggleBlackHole(v)
-        Window:Notify({ Title = "Black Hole", Content = v and "BLACK HOLE AKTIF! Seluruh map & ragdoll tersedot ke singularitas gravitasi." or "Black hole dinonaktifkan.", Duration = 2.5 })
-    end
-})
-
-EventsTab:CreateSection("4. Event Bencana Tambahan")
-
-EventsTab:CreateButton({
-    Name = "Warhead (Nuklir Masif - Semua Ragdoll Hancur Seketika)",
-    Callback = function()
-        triggerWarhead()
-        Window:Notify({ Title = "WARHEAD", Content = "Hulu ledak nuklir dijatuhkan! Seluruh ragdoll musnah dalam ledakan besar!", Duration = 4 })
-    end
-})
-
-EventsTab:CreateButton({
-    Name = "Zombie Outbreak (Semua Ragdoll Berubah Jadi Zombie Hijau)",
-    Callback = function()
-        local count = triggerZombieOutbreak()
-        Window:Notify({ Title = "Zombie Outbreak", Content = count .. " ragdoll telah berubah menjadi zombie hijau!", Duration = 3 })
-    end
-})
-
-EventsTab:CreateButton({
-    Name = "Disco Party (Pesta Lampu Disko + Gravitasi Rendah)",
-    Callback = function()
-        triggerDiscoParty()
-        Window:Notify({ Title = "Disco Party", Content = "Pesta disko dimulai! Gravitasi ringan & semua berwarna-warni!", Duration = 3 })
-    end
-})
-
-EventsTab:CreateButton({
-    Name = "Bee Swarm (Serangan Lebah Masif pada Semua Ragdoll)",
-    Callback = function()
-        local count = triggerBeeSwarm()
-        Window:Notify({ Title = "Bee Swarm", Content = count .. " ragdoll diserang gerombolan lebah!", Duration = 3 })
-    end
-})
-
-EventsTab:CreateButton({
-    Name = "T-Rex Attack (T-Rex Raksasa Muncul Menghancurkan Semua)",
-    Callback = function()
-        triggerTRexAttack()
-        Window:Notify({ Title = "T-Rex Attack", Content = "T-Rex Titan berhasil dipanggil! Seluruh ragdoll diporak-porandakan!", Duration = 4 })
-    end
-})
-
-EventsTab:CreateButton({
-    Name = "Airstrike (8 Bom Udara Beruntun Menghujani Map)",
-    Callback = function()
-        triggerAirstrike()
-        Window:Notify({ Title = "Airstrike", Content = "8 bom udara diluncurkan! Seluruh map dibombardir!", Duration = 3 })
-    end
-})
-
-EventsTab:CreateButton({
-    Name = "Tsunami (Gelombang Raksasa Menyapu Seluruh Map)",
-    Callback = function()
-        triggerTsunami()
-        Window:Notify({ Title = "Tsunami", Content = "Gelombang tsunami masif menyapu seluruh map!", Duration = 4 })
-    end
-})
-
-EventsTab:CreateButton({
-    Name = "Shark Rain (Hiu Berjatuhan dari Langit)",
-    Callback = function()
-        triggerSharkRain()
-        Window:Notify({ Title = "Shark Rain", Content = "Hiu-hiu berjatuhan dari langit menghantam semua ragdoll!", Duration = 3 })
-    end
-})
-
-
-
--- ╔═══════════════════════════════════════════╗
--- ║  TAB 3: SENJATA (WEAPON UNLOCKER)         ║
--- ╚═══════════════════════════════════════════╝
 -- ═══════════════════════════════════════════
 --  DATABASE SENJATA LENGKAP (72 Senjata HRR)
 -- ═══════════════════════════════════════════
@@ -2445,40 +836,41 @@ local function giveWeapon(weaponName, slot)
         return false
     end
 
-    -- Cek slot yang digunakan (game HRR punya 10 slot)
     local currentTools = {}
-    local char = getCharacter()
     if char then
         for _, item in ipairs(char:GetChildren()) do
-            if item:IsA("Tool") then
-                table.insert(currentTools, item)
-            end
+            if item:IsA("Tool") then table.insert(currentTools, item) end
         end
     end
     for _, item in ipairs(LocalPlayer.Backpack:GetChildren()) do
-        if item:IsA("Tool") then
-            table.insert(currentTools, item)
+        if item:IsA("Tool") then table.insert(currentTools, item) end
+    end
+
+    -- Cek duplikat: jika senjata sudah ada di slot, jangan ambil lagi
+    for _, t in ipairs(currentTools) do
+        if string.lower(t.Name) == string.lower(weaponName) or string.find(string.lower(t.Name), string.lower(weaponName), 1, true) then
+            Window:Notify({
+                Title = "Slot Senjata",
+                Content = "Senjata [" .. weaponName .. "] sudah ada di slot inventory!",
+                Duration = 2.5
+            })
+            return false
         end
     end
 
-    -- Cek apakah slot sudah terpakai - jika ya, drop tool di slot itu
-    if slot and slot > 0 then
-        local toolInSlot = currentTools[slot]
-        if toolInSlot then
-            -- Drop tool yang ada di slot itu
-            pcall(function()
-                local handle = toolInSlot:FindFirstChild("Handle") or toolInSlot:FindFirstChildWhichIsA("BasePart")
-                if handle then
-                    toolInSlot.Parent = workspace
-                    handle.CFrame = myRoot.CFrame * CFrame.new(0, 0, -4)
-                end
-            end)
-        end
+    -- Cek limit 10 slot: jika sudah 10, tolak
+    if #currentTools >= 10 then
+        Window:Notify({
+            Title = "Slot Penuh",
+            Content = "Slot inventory sudah penuh (10/10)! Buang salah satu senjata terlebih dahulu.",
+            Duration = 3
+        })
+        return false
     end
 
     local got = false
 
-    -- Metode 1: Scan ToolController untuk equip tool bernama weaponName
+    -- Metode 1: Scan ToolController
     pcall(function()
         local client = LocalPlayer.PlayerScripts:FindFirstChild("Client")
         if client then
@@ -2495,7 +887,7 @@ local function giveWeapon(weaponName, slot)
         end
     end)
 
-    -- Metode 2: Scan RemoteEvent untuk memberi senjata
+    -- Metode 2: Scan RemoteEvent
     pcall(function()
         for _, obj in ipairs(game:GetDescendants()) do
             if obj:IsA("RemoteEvent") then
@@ -2511,7 +903,22 @@ local function giveWeapon(weaponName, slot)
         end
     end)
 
-    -- Metode 3: Cari senjata di ServerStorage / ReplicatedStorage / workspace
+    -- Metode 3: Scan dropped tools di workspace
+    pcall(function()
+        for _, tool in ipairs(getDroppedTools()) do
+            if string.find(string.lower(tool.Name), string.lower(weaponName)) then
+                local handle = tool:FindFirstChild("Handle") or tool:FindFirstChildWhichIsA("BasePart")
+                if handle and firetouchinterest then
+                    firetouchinterest(handle, myRoot, 0)
+                    firetouchinterest(handle, myRoot, 1)
+                    got = true
+                    break
+                end
+            end
+        end
+    end)
+
+    -- Metode 4: Storage
     pcall(function()
         local searchLocations = {
             game:GetService("ReplicatedStorage"),
@@ -2542,7 +949,7 @@ local function giveWeapon(weaponName, slot)
         end
     end)
 
-    -- Metode 4: SetAttribute HRR_GiveTool (HRR attribute-based give)
+    -- Metode 5: SetAttribute HRR_GiveTool
     pcall(function()
         LocalPlayer:SetAttribute("HRR_GiveTool", weaponName)
         task.delay(0.2, function()
@@ -2551,22 +958,7 @@ local function giveWeapon(weaponName, slot)
         got = true
     end)
 
-    -- Metode 5: firetouchinterest dengan tool yang ada di tangan lain
-    if not got then
-        pcall(function()
-            -- Ambil tool dari Backpack/Character jika ada nama mirip
-            local lowerWep = string.lower(weaponName)
-            for _, item in ipairs(LocalPlayer.Backpack:GetChildren()) do
-                if string.find(string.lower(item.Name), lowerWep) then
-                    hum:EquipTool(item)
-                    got = true
-                    break
-                end
-            end
-        end)
-    end
-
-    -- Pastikan tool di-equip ke tangan dan script di dalamnya aktif
+    -- Auto-equip & aktifkan senjata
     task.defer(function()
         task.wait(0.1)
         local toolToEquip = nil
@@ -2585,7 +977,6 @@ local function giveWeapon(weaponName, slot)
             end
         end
         if toolToEquip then
-            -- Aktifkan semua script dalam tool jika nonaktif
             for _, scr in ipairs(toolToEquip:GetDescendants()) do
                 if scr:IsA("LocalScript") and scr.Disabled then
                     scr.Disabled = false
@@ -2608,69 +999,547 @@ local function giveWeapon(weaponName, slot)
     return got
 end
 
--- Listener klik mouse untuk menembak / mengayun senjata 100% aktif
-local weaponClickConn = nil
-if not getgenv()._UNIONSAL_WEAPON_CLICK then
-    getgenv()._UNIONSAL_WEAPON_CLICK = true
-    UserInputService.InputBegan:Connect(function(input, gpe)
-        if gpe then return end
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            local ch = LocalPlayer.Character
-            local currentTool = ch and ch:FindFirstChildOfClass("Tool")
-            if currentTool then
-                pcall(function() currentTool:Activate() end)
-                -- Fallback damage raycast jika script bawaan senjata di-block
-                task.defer(function()
-                    local mouse = LocalPlayer:GetMouse()
-                    local targetPart = mouse and mouse.Target
-                    if targetPart and targetPart.Parent and targetPart.Parent ~= ch then
-                        local dHum = targetPart.Parent:FindFirstChildOfClass("Humanoid")
-                        if dHum then
-                            dHum:TakeDamage(45)
-                            if dHum.Health <= 0 then
-                                notifyKillToServer(targetPart.Parent)
-                            end
-                        end
+-- ═══════════════════════════════════════════
+--  PENGATURAN RUNTIME (Selalu Reset Saat Join / Masuk Game)
+--  Hanya Webhook yang Disimpan Persisten
+-- ═══════════════════════════════════════════
+local WEBHOOK_CONFIG_FILE = "unionsal_webhook.json"
+local webhookUrl = ""
+
+local ConfigRegistry = {
+    AutoKill = false,
+    FlingAll = false,
+    FanToss = false,
+    KillDelay = 0.2,
+    SuperGrab = false,
+    AntiRagdoll = false,
+    FastAttack = false,
+    Fly = false,
+    FlySpeed = 50,
+    NoClip = false,
+    SpinBot = false,
+    SpinSpeed = 30,
+    WalkSpeed = 16,
+    Fullbright = false,
+    Fov = 70,
+    ToolsEsp = false,
+    PlayerEsp = false,
+    AntiAfk = true,
+    FpsBoost = false,
+    PotatoGraphics = false,
+    WebhookUrl = "",
+    SendOnExec = true,
+    SendOnKo = true,
+    ToggleKey = "RightShift"
+}
+
+local ToggleObjects = {}
+local SliderObjects = {}
+local InputObjects = {}
+
+local function saveWebhookConfig()
+    pcall(function()
+        if writefile then
+            local payload = {
+                WebhookUrl = ConfigRegistry.WebhookUrl,
+                SendOnExec = ConfigRegistry.SendOnExec,
+                SendOnKo = ConfigRegistry.SendOnKo
+            }
+            writefile(WEBHOOK_CONFIG_FILE, HttpService:JSONEncode(payload))
+        end
+    end)
+end
+
+local function loadWebhookConfig()
+    pcall(function()
+        if readfile and isfile and isfile(WEBHOOK_CONFIG_FILE) then
+            local data = HttpService:JSONDecode(readfile(WEBHOOK_CONFIG_FILE))
+            if data and type(data) == "table" then
+                if data.WebhookUrl then
+                    ConfigRegistry.WebhookUrl = data.WebhookUrl
+                    webhookUrl = data.WebhookUrl
+                    if InputObjects.WebhookUrl then
+                        pcall(function() InputObjects.WebhookUrl:Set(data.WebhookUrl, true) end)
                     end
-                end)
+                end
+                if data.SendOnExec ~= nil then ConfigRegistry.SendOnExec = data.SendOnExec end
+                if data.SendOnKo ~= nil then ConfigRegistry.SendOnKo = data.SendOnKo end
             end
         end
     end)
 end
 
--- Buat Weapons Tab
--- ═══════════════════════════════════════════
---  SENJATA TAB (Dropdown per Kategori, Sidebar Sendiri)
--- ═══════════════════════════════════════════
--- Tab utama Senjata (sidebar: group "Senjata")
-local WeaponsTab    = Window:CreateTab("Senjata",     "sword",   "Senjata")
-local WeaponsMelee  = Window:CreateTab("Melee",       "sword",   "Senjata")
-local WeaponsGuns   = Window:CreateTab("Guns",        "target",  "Senjata")
-local WeaponsThrow  = Window:CreateTab("Lempar",      "star",    "Senjata")
-local WeaponsPower  = Window:CreateTab("Power",       "zap",     "Senjata")
-local WeaponsMedic  = Window:CreateTab("Medic",       "heart",   "Senjata")
-local WeaponsRobux  = Window:CreateTab("Premium",     "diamond", "Senjata")
-
--- ── Helper: build daftar nama senjata per kategori
-local function buildWeaponOptions(category)
-    local opts = {}
-    for _, wep in ipairs(WeaponDatabase[category]) do
-        local lbl = wep.robux and ("[R$] " .. wep.name) or wep.name
-        table.insert(opts, lbl)
-    end
-    return opts
+local function deleteWebhookConfig()
+    pcall(function()
+        if delfile and isfile and isfile(WEBHOOK_CONFIG_FILE) then
+            delfile(WEBHOOK_CONFIG_FILE)
+        end
+        ConfigRegistry.WebhookUrl = ""
+        webhookUrl = ""
+        if InputObjects.WebhookUrl then
+            pcall(function() InputObjects.WebhookUrl:Set("", true) end)
+        end
+    end)
 end
 
-local function getWeaponByLabel(category, label)
-    for _, wep in ipairs(WeaponDatabase[category]) do
-        local lbl = wep.robux and ("[R$] " .. wep.name) or wep.name
-        if lbl == label then return wep end
-    end
-    return nil
+local function notifyStateChange(k, v)
+    ConfigRegistry[k] = v
 end
 
--- ── Tab Overview Senjata
-WeaponsTab:CreateSection("Status Inventory Senjata")
+-- ═══════════════════════════════════════════
+--  OPTIMASI GRAFIK POTATO & FPS BOOST
+-- ═══════════════════════════════════════════
+local function applyPotatoGraphics(enable)
+    local Terrain = workspace:FindFirstChildOfClass("Terrain")
+    if enable then
+        pcall(function() settings().Rendering.QualityLevel = 1 end)
+        pcall(function() Lighting.GlobalShadows = false; Lighting.FogEnd = 9e9; Lighting.Brightness = 1 end)
+        for _, v in ipairs(Lighting:GetChildren()) do
+            if v:IsA("PostEffect") or v:IsA("BloomEffect") or v:IsA("ColorCorrectionEffect") or v:IsA("SunRaysEffect") or v:IsA("BlurEffect") or v:IsA("DepthOfFieldEffect") then
+                v.Enabled = false
+            end
+        end
+        if Terrain then
+            pcall(function() Terrain.Decoration = false; Terrain.WaterWaveSize = 0; Terrain.WaterWaveSpeed = 0; Terrain.WaterReflectance = 0 end)
+        end
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            if obj:IsA("BasePart") and not obj:IsDescendantOf(LocalPlayer.Character or workspace) then
+                pcall(function() obj.Material = Enum.Material.SmoothPlastic; obj.CastShadow = false end)
+            elseif obj:IsA("Decal") or obj:IsA("Texture") then
+                pcall(function() obj.Transparency = 1 end)
+            elseif obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Smoke") or obj:IsA("Fire") or obj:IsA("Sparkles") then
+                pcall(function() obj.Enabled = false end)
+            end
+        end
+    else
+        pcall(function() Lighting.GlobalShadows = true; Lighting.FogEnd = 1000 end)
+        for _, v in ipairs(Lighting:GetChildren()) do
+            if v:IsA("PostEffect") then v.Enabled = true end
+        end
+        if Terrain then
+            pcall(function() Terrain.Decoration = true end)
+        end
+    end
+end
+
+local function applyFpsBoost(enable)
+    if enable then
+        pcall(function() settings().Rendering.QualityLevel = 1; Lighting.GlobalShadows = false end)
+    else
+        pcall(function() settings().Rendering.QualityLevel = 0; Lighting.GlobalShadows = true end)
+    end
+end
+
+-- ╔═══════════════════════════════════════════╗
+-- ║  TAB 1: DUMMIES & KO (AUTO FARM)          ║
+-- ╚═══════════════════════════════════════════╝
+local FarmTab = Window:CreateTab("Auto Farm", "sprout", "Main")
+FarmTab:CreateSection("Auto Kill (Teleport & Langsung Mati)")
+
+ToggleObjects.AutoKill = FarmTab:CreateToggle({
+    Name = "Auto Kill Ragdoll (Teleport & Langsung Mati)",
+    CurrentValue = false,
+    Callback = function(v)
+        RagdollGame.AutoKillRunning = v
+        notifyStateChange("AutoKill", v)
+        Window:Notify({ Title = "Auto Kill", Content = v and "Auto Kill AKTIF! Karakter TP dan ragdoll langsung mati seketika." or "Auto Kill nonaktif.", Duration = 2 })
+
+        if v then
+            task.spawn(function()
+                while RagdollGame.AutoKillRunning do
+                    local dummies = getLivingDummies()
+                    if #dummies > 0 then
+                        for _, dummy in ipairs(dummies) do
+                            if not RagdollGame.AutoKillRunning then break end
+                            local root = getRootPart()
+                            local dRoot = dummy:FindFirstChild("HumanoidRootPart") or dummy:FindFirstChild("Torso") or dummy:FindFirstChild("UpperTorso") or dummy:FindFirstChild("Head")
+
+                            if root and dRoot and dummy.Parent then
+                                root.CFrame = dRoot.CFrame * CFrame.new(0, 1, 2)
+                                task.wait(0.03)
+
+                                killDummyInstantly(dummy)
+
+                                if ConfigRegistry.SendOnKo and ConfigRegistry.WebhookUrl ~= "" then
+                                    sendDiscordWebhook({
+                                        title = "[KO] Ragdoll Eliminated",
+                                        description = "Target: **" .. dummy.Name .. "**",
+                                        color = 0xFF3333,
+                                        footer = { text = "Unionsal Hub • .gg/unionsal" }
+                                    })
+                                end
+
+                                task.wait(RagdollGame.KillDelay)
+                            end
+                        end
+                    else
+                        task.wait(0.5)
+                    end
+                end
+            end)
+        end
+    end
+})
+
+SliderObjects.KillDelay = FarmTab:CreateSlider({
+    Name = "Jeda Antar Target Ragdoll",
+    Range = {0.05, 1.5},
+    Increment = 0.05,
+    Suffix = " detik",
+    CurrentValue = 0.15,
+    Callback = function(v)
+        RagdollGame.KillDelay = v
+        notifyStateChange("KillDelay", v)
+    end
+})
+
+FarmTab:CreateSection("Shatter & Kill All (Hancurkan Seluruh Tubuh)")
+
+FarmTab:CreateButton({
+    Name = "Kill All Ragdoll (Hancurkan Seluruh Tubuh Seketika)",
+    Callback = function()
+        local count = shatterAndDismemberAllDummies()
+        Window:Notify({ Title = "Shatter Kill All", Content = count .. " ragdoll berhasil dibunuh & tubuhnya hancur berkeping-keping!", Duration = 3.5 })
+    end
+})
+
+local loopShatterRunning = false
+FarmTab:CreateToggle({
+    Name = "Loop Shatter All (Hancurkan Semua Terus Menerus)",
+    CurrentValue = false,
+    Callback = function(v)
+        loopShatterRunning = v
+        Window:Notify({ Title = "Loop Shatter", Content = v and "Loop Shatter AKTIF! Semua ragdoll yang muncul akan langsung hancur." or "Loop Shatter nonaktif.", Duration = 2 })
+        if v then
+            task.spawn(function()
+                while loopShatterRunning do
+                    shatterAndDismemberAllDummies()
+                    task.wait(0.3)
+                end
+            end)
+        end
+    end
+})
+
+FarmTab:CreateButton({
+    Name = "Fling All Ragdoll (Lontarkan Semua ke Langit)",
+    Callback = function()
+        local count = 0
+        for _, dummy in ipairs(getAllDummies()) do
+            local dRoot = dummy:FindFirstChild("HumanoidRootPart") or dummy:FindFirstChild("Torso")
+            if dRoot and not dRoot.Anchored then
+                dRoot.AssemblyLinearVelocity = Vector3.new(math.random(-60, 60), 350, math.random(-60, 60))
+                dRoot.AssemblyAngularVelocity = Vector3.new(math.random(-80, 80), math.random(-80, 80), math.random(-80, 80))
+                count = count + 1
+            end
+        end
+        Window:Notify({ Title = "Fling Ragdoll", Content = count .. " ragdoll dilontarkan ke langit!", Duration = 3 })
+    end
+})
+
+FarmTab:CreateSection("Revive & Respawn Sistem")
+
+FarmTab:CreateButton({
+    Name = "Revive All Ragdoll (R - Bangkitkan Seluruh Ragdoll)",
+    Callback = function()
+        local ok = triggerGameRevive()
+        Window:Notify({ Title = "Revive All", Content = ok and "Sinyal Revive [R] dikirim! Seluruh ragdoll dibangkitkan." or "Memicu revive fallback...", Duration = 3 })
+    end
+})
+
+FarmTab:CreateButton({
+    Name = "Scan Dummy Terdekat (V - Buka Scan Menu)",
+    Callback = function()
+        pcall(function()
+            if firesignal then
+                firesignal(UserInputService.InputBegan, {KeyCode = Enum.KeyCode.V, UserInputType = Enum.UserInputType.Keyboard}, false)
+                task.wait(0.05)
+                firesignal(UserInputService.InputEnded, {KeyCode = Enum.KeyCode.V, UserInputType = Enum.UserInputType.Keyboard}, false)
+            end
+        end)
+        pcall(function()
+            for _, gui in ipairs(LocalPlayer.PlayerGui:GetDescendants()) do
+                if gui:IsA("TextButton") or gui:IsA("ImageButton") then
+                    local n = string.lower(gui.Name)
+                    local t = gui:IsA("TextButton") and string.lower(gui.Text) or ""
+                    if string.find(n, "scan") or string.find(t, "scan") or string.find(n, "xray") then
+                        if firesignal then firesignal(gui.MouseButton1Click) end
+                    end
+                end
+            end
+        end)
+        Window:Notify({ Title = "Scan", Content = "Tombol V ditekan - Scan dummy aktif!", Duration = 2 })
+    end
+})
+
+FarmTab:CreateButton({
+    Name = "Defibrillator Mass Revive (Kejut Jantung Semua Ragdoll)",
+    Callback = function()
+        local count = massDefibrillatorRevive()
+        Window:Notify({ Title = "Defibrillator Revive", Content = count .. " ragdoll berhasil diselamatkan/di-revive dengan Defibrillator!", Duration = 3 })
+    end
+})
+
+FarmTab:CreateButton({
+    Name = "Respawn Karakter (G - Instan)",
+    Callback = function()
+        pcall(function()
+            if firesignal then
+                firesignal(UserInputService.InputBegan, {KeyCode = Enum.KeyCode.G, UserInputType = Enum.UserInputType.Keyboard}, false)
+                task.wait(0.05)
+                firesignal(UserInputService.InputEnded, {KeyCode = Enum.KeyCode.G, UserInputType = Enum.UserInputType.Keyboard}, false)
+            end
+        end)
+        task.wait(0.1)
+        local hum = getHumanoid()
+        if hum and hum.Health > 0 then
+            hum.Health = 0
+        end
+        Window:Notify({ Title = "Respawn", Content = "Karakter di-respawn! (Tombol G + fallback)", Duration = 1.5 })
+    end
+})
+
+FarmTab:CreateButton({
+    Name = "Clear Graves & Dropped Guns (Bersihkan Map)",
+    Callback = function()
+        local count = clearGravesAndGuns()
+        Window:Notify({ Title = "Clear Map", Content = count .. " kuburan/senjata di lantai dibersihkan!", Duration = 3 })
+    end
+})
+
+FarmTab:CreateSection("Fisika & Interaksi Massal")
+
+FarmTab:CreateButton({
+    Name = "Bring All Dummies (Kumpulkan di Depan Pemain)",
+    Callback = function()
+        local myRoot = getRootPart()
+        if not myRoot then return end
+        local count = 0
+        for _, dummy in ipairs(getAllDummies()) do
+            local dRoot = dummy:FindFirstChild("HumanoidRootPart") or dummy:FindFirstChild("Torso")
+            if dRoot and not dRoot.Anchored then
+                dRoot.CFrame = myRoot.CFrame * CFrame.new(0, 0, -4)
+                count = count + 1
+            end
+        end
+        Window:Notify({ Title = "Bring Dummies", Content = count .. " dummy berhasil dikumpulkan di depanmu!", Duration = 3 })
+    end
+})
+
+FarmTab:CreateButton({
+    Name = "Yeet All Dummies to Big Fan (Hancurkan di Kipas)",
+    Callback = function()
+        local fanCf = findBigFan()
+        local count = 0
+        for _, dummy in ipairs(getAllDummies()) do
+            local dRoot = dummy:FindFirstChild("HumanoidRootPart") or dummy:FindFirstChild("Torso")
+            if dRoot and not dRoot.Anchored then
+                dRoot.CFrame = fanCf
+                count = count + 1
+            end
+        end
+        Window:Notify({ Title = "Big Fan Toss", Content = count .. " dummy dilempar ke bilah kipas raksasa!", Duration = 3 })
+    end
+})
+
+FarmTab:CreateButton({
+    Name = "Freeze All Dummies (Lumpuhkan AI Bergerak)",
+    Callback = function()
+        local count = 0
+        for _, dummy in ipairs(getAllDummies()) do
+            for _, p in ipairs(dummy:GetDescendants()) do
+                if p:IsA("BasePart") then
+                    p.Anchored = true
+                end
+            end
+            count = count + 1
+        end
+        Window:Notify({ Title = "Freeze Dummies", Content = count .. " dummy berhasil dibekukan!", Duration = 3 })
+    end
+})
+
+FarmTab:CreateButton({
+    Name = "Unfreeze All Dummies (Pulihkan AI)",
+    Callback = function()
+        for _, dummy in ipairs(getAllDummies()) do
+            for _, p in ipairs(dummy:GetDescendants()) do
+                if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" then
+                    p.Anchored = false
+                end
+            end
+        end
+        Window:Notify({ Title = "Unfreeze", Content = "AI dummy dipulihkan normal.", Duration = 2 })
+    end
+})
+
+-- ╔═══════════════════════════════════════════╗
+-- ║  TAB 2: EVENTS (SEMUA 24 EVENT GAME HRR)  ║
+-- ╚═══════════════════════════════════════════╝
+local EventsTab = Window:CreateTab("Events", "zap", "Main")
+EventsTab:CreateSection("Bypass & Kontrol Seluruh Event Game")
+
+EventsTab:CreateButton({
+    Name = "Unlock All In-Game Event Tokens (999x Penggunaan)",
+    Callback = function()
+        local c = unlockAllEventTokens()
+        Window:Notify({ Title = "Events Unlocked", Content = "Token event di-unlock di UI game! (" .. c .. " items)", Duration = 3 })
+    end
+})
+
+EventsTab:CreateButton({
+    Name = "Hentikan Semua Bencana Aktif (Reset Map Damai)",
+    Callback = function()
+        stopAllActiveEvents()
+        Window:Notify({ Title = "Events Reset", Content = "Seluruh bencana dihentikan. Map dikembalikan ke normal.", Duration = 2.5 })
+    end
+})
+
+EventsTab:CreateSection("Bencana Fisika dan Cuaca (9 Event)")
+local physicsEvents = {
+    "Weightless", "Deep Freeze", "Falling Dummies",
+    "Wildfire", "Mini Dummies", "Giant Dummy",
+    "Meteor Rain", "Tornado", "Black Hole"
+}
+for _, evName in ipairs(physicsEvents) do
+    EventsTab:CreateButton({
+        Name = evName,
+        Callback = function()
+            runGameEvent(evName)
+        end
+    })
+end
+
+EventsTab:CreateSection("Bencana Serangan Hewan dan Makhluk (9 Event)")
+local creatureEvents = {
+    "Warhead", "Zombie Outbreak", "Disco Party",
+    "Bee Swarm", "Dog Pack", "Snake Nest",
+    "Spider Nest", "Croc Raid", "Bear Attack"
+}
+for _, evName in ipairs(creatureEvents) do
+    EventsTab:CreateButton({
+        Name = evName,
+        Callback = function()
+            runGameEvent(evName)
+        end
+    })
+end
+
+EventsTab:CreateSection("Bencana Serangan Raksasa dan Titan (6 Event)")
+local titanEvents = {
+    "Bull Run", "Gorilla Rampage", "Shark Rain",
+    "T-Rex Attack", "Airstrike", "Tsunami"
+}
+for _, evName in ipairs(titanEvents) do
+    EventsTab:CreateButton({
+        Name = evName,
+        Callback = function()
+            runGameEvent(evName)
+        end
+    })
+end
+
+-- ═══════════════════════════════════════════
+--  TAB 3: SENJATA (SATU TAB SAJA DI SIDEBAR - DROPDOWN)
+-- ═══════════════════════════════════════════
+local WeaponsTab = Window:CreateTab("Senjata", "sword", "Main")
+
+WeaponsTab:CreateSection("Pilih Kategori dan Senjata")
+
+local selectedCategory = "Melee"
+local selectedWeaponName = WeaponDatabase.Melee[1].name
+local weaponDropdownObj = nil
+
+local function getCategoryOptionsList(cat)
+    local list = {}
+    if WeaponDatabase[cat] then
+        for _, w in ipairs(WeaponDatabase[cat]) do
+            local label = w.robux and ("[R$] " .. w.name) or w.name
+            table.insert(list, label)
+        end
+    end
+    return list
+end
+
+WeaponsTab:CreateDropdown({
+    Name = "Pilih Kategori Senjata",
+    Options = { "Melee (14)", "Guns (14)", "Throw (12)", "Power (13)", "Medic (8)", "Robux (8)" },
+    Callback = function(opt)
+        local catKey = "Melee"
+        if string.find(opt, "Guns") then catKey = "Guns"
+        elseif string.find(opt, "Throw") then catKey = "Throw"
+        elseif string.find(opt, "Power") then catKey = "Power"
+        elseif string.find(opt, "Medic") then catKey = "Medic"
+        elseif string.find(opt, "Robux") then catKey = "Robux"
+        end
+        selectedCategory = catKey
+        local opts = getCategoryOptionsList(catKey)
+        if weaponDropdownObj and opts and #opts > 0 then
+            weaponDropdownObj:Refresh(opts)
+            selectedWeaponName = WeaponDatabase[catKey][1].name
+        end
+    end
+})
+
+weaponDropdownObj = WeaponsTab:CreateDropdown({
+    Name = "Pilih Senjata",
+    Options = getCategoryOptionsList("Melee"),
+    Callback = function(opt)
+        for _, w in ipairs(WeaponDatabase[selectedCategory] or {}) do
+            local label = w.robux and ("[R$] " .. w.name) or w.name
+            if label == opt or w.name == opt then
+                selectedWeaponName = w.name
+                break
+            end
+        end
+    end
+})
+
+WeaponsTab:CreateSection("Aksi dan Penggunaan Senjata")
+
+WeaponsTab:CreateButton({
+    Name = "Equip Senjata yang Dipilih",
+    Callback = function()
+        giveWeapon(selectedWeaponName, 1)
+    end
+})
+
+WeaponsTab:CreateButton({
+    Name = "Drop Senjata yang Sedang Dipegang",
+    Callback = function()
+        local char = getCharacter()
+        local myRoot = getRootPart()
+        if char and myRoot then
+            local tool = char:FindFirstChildOfClass("Tool")
+            if tool then
+                tool.Parent = workspace
+                local h = tool:FindFirstChild("Handle") or tool:FindFirstChildWhichIsA("BasePart")
+                if h then h.CFrame = myRoot.CFrame * CFrame.new(0, 0, -4) end
+                Window:Notify({ Title = "Drop Senjata", Content = tool.Name .. " dibuang ke lantai.", Duration = 2 })
+            else
+                Window:Notify({ Title = "Info", Content = "Kamu tidak sedang memegang senjata.", Duration = 2 })
+            end
+        end
+    end
+})
+
+WeaponsTab:CreateButton({
+    Name = "Ambil Semua Senjata di Lantai (Pickup All)",
+    Callback = function()
+        local myRoot = getRootPart()
+        if not myRoot then return end
+        local count = 0
+        for _, tool in ipairs(getDroppedTools()) do
+            local handle = tool:FindFirstChild("Handle") or tool:FindFirstChildWhichIsA("BasePart")
+            if handle then
+                handle.CFrame = myRoot.CFrame
+                count = count + 1
+            end
+        end
+        Window:Notify({ Title = "Pickup All", Content = count .. " senjata ditarik ke badanmu!", Duration = 2.5 })
+    end
+})
+
+WeaponsTab:CreateSection("Status Slot Senjata (Maks 10 Slot)")
 
 WeaponsTab:CreateButton({
     Name = "Lihat Slot Senjata Aktif",
@@ -2679,19 +1548,19 @@ WeaponsTab:CreateButton({
         local tools = {}
         if char then
             for _, item in ipairs(char:GetChildren()) do
-                if item:IsA("Tool") then table.insert(tools, "[Pegang] "..item.Name) end
+                if item:IsA("Tool") then table.insert(tools, "[Pegang] " .. item.Name) end
             end
         end
         for _, item in ipairs(LocalPlayer.Backpack:GetChildren()) do
-            if item:IsA("Tool") then table.insert(tools, "[Pack] "..item.Name) end
+            if item:IsA("Tool") then table.insert(tools, "[Pack] " .. item.Name) end
         end
         local msg = #tools > 0 and table.concat(tools, " | ") or "Inventory kosong."
-        Window:Notify({ Title = "Slot ("..#tools.."/10)", Content = msg, Duration = 7 })
+        Window:Notify({ Title = "Slot (" .. #tools .. "/10)", Content = msg, Duration = 6 })
     end
 })
 
 WeaponsTab:CreateButton({
-    Name = "Drop Semua Senjata (Kosongkan Inventory)",
+    Name = "Kosongkan Seluruh Inventory (Drop All)",
     Callback = function()
         local char = getCharacter(); local myRoot = getRootPart(); local count = 0
         if char and myRoot then
@@ -2712,153 +1581,151 @@ WeaponsTab:CreateButton({
                 count = count + 1
             end
         end
-        Window:Notify({ Title = "Drop Senjata", Content = count.." senjata dibuang ke lantai.", Duration = 2 })
+        Window:Notify({ Title = "Drop Semua", Content = count .. " senjata dibuang ke lantai.", Duration = 2 })
     end
 })
 
-WeaponsTab:CreateParagraph({
-    Title = "Cara Pakai Senjata",
-    Content = "Pilih kategori di sidebar kiri (Melee / Guns / Lempar / Power / Medic / Premium), lalu pilih senjata dari dropdown dan klik Equip. Jika slot penuh, slot lama otomatis di-drop."
-})
+-- Sistem Universal Tembak / Serang dengan Klik Kiri Mouse (100% Menembak)
+-- ═══════════════════════════════════════════
+--  UNIVERSAL WEAPON SHOOT & ATTACK SYSTEM
+-- ═══════════════════════════════════════════
+local function fireEquippedWeapon()
+    local char = getCharacter()
+    local tool = char and char:FindFirstChildOfClass("Tool")
+    if not tool then return end
 
--- ── MELEE TAB
-WeaponsMelee:CreateSection("Melee - Senjata Jarak Dekat")
-local selectedMelee = WeaponDatabase.Melee[1].name
-WeaponsMelee:CreateDropdown({
-    Name = "Pilih Senjata Melee",
-    Options = buildWeaponOptions("Melee"),
-    Callback = function(opt)
-        local wep = getWeaponByLabel("Melee", opt)
-        if wep then selectedMelee = wep.name end
-    end
-})
-WeaponsMelee:CreateButton({
-    Name = "Equip Senjata Melee Dipilih",
-    Callback = function()
-        giveWeapon(selectedMelee, 1)
-    end
-})
-WeaponsMelee:CreateParagraph({
-    Title = "Daftar Melee (14 senjata)",
-    Content = "Fists | Bat | Axe | Hammer | Shovel | Wrench | Crowbar | Machete | Sword | [R$] Katana | Cleaver | [R$] Chainsaw | Sledgehammer | Spear"
-})
+    local myRoot = getRootPart()
+    local mouse = LocalPlayer:GetMouse()
+    if not myRoot or not mouse then return end
 
--- ── GUNS TAB
-WeaponsGuns:CreateSection("Guns - Senjata Api")
-local selectedGun = WeaponDatabase.Guns[1].name
-WeaponsGuns:CreateDropdown({
-    Name = "Pilih Senjata Api",
-    Options = buildWeaponOptions("Guns"),
-    Callback = function(opt)
-        local wep = getWeaponByLabel("Guns", opt)
-        if wep then selectedGun = wep.name end
-    end
-})
-WeaponsGuns:CreateButton({
-    Name = "Equip Senjata Api Dipilih",
-    Callback = function()
-        giveWeapon(selectedGun, 2)
-    end
-})
-WeaponsGuns:CreateParagraph({
-    Title = "Daftar Guns (14 senjata)",
-    Content = "Pistol | Revolver | Shotgun | SMG | Rifle | Sniper | LMG | Crossbow | Flintlock | [R$] Minigun | [R$] Railgun | [R$] Flamethrower | [R$] Laser | Paintball Gun"
-})
+    -- 1. Activate tool natively
+    pcall(function() tool:Activate() end)
 
--- ── THROW TAB
-WeaponsThrow:CreateSection("Lempar - Senjata Lempar")
-local selectedThrow = WeaponDatabase.Throw[1].name
-WeaponsThrow:CreateDropdown({
-    Name = "Pilih Senjata Lempar",
-    Options = buildWeaponOptions("Throw"),
-    Callback = function(opt)
-        local wep = getWeaponByLabel("Throw", opt)
-        if wep then selectedThrow = wep.name end
-    end
-})
-WeaponsThrow:CreateButton({
-    Name = "Equip Senjata Lempar Dipilih",
-    Callback = function()
-        giveWeapon(selectedThrow, 3)
-    end
-})
-WeaponsThrow:CreateParagraph({
-    Title = "Daftar Lempar (12 senjata)",
-    Content = "Rock | Grenade | Molotov | Flashbang | Smoke Grenade | Dynamite | Throwing Knife | Tomahawk | [R$] Shuriken | Firework | [R$] C4 | Frag Grenade"
-})
+    -- 2. Play attack/swing/recoil animation
+    pcall(function()
+        local hum = getHumanoid()
+        if hum then
+            local animator = hum:FindFirstChildOfClass("Animator") or hum
+            local anim = tool:FindFirstChildOfClass("Animation") or tool:FindFirstChild("Shoot") or tool:FindFirstChild("Fire") or tool:FindFirstChild("Slash") or tool:FindFirstChild("Attack")
+            if anim and animator.LoadAnimation then
+                local track = animator:LoadAnimation(anim)
+                track:Play()
+            else
+                local fallbackAnim = Instance.new("Animation")
+                fallbackAnim.AnimationId = "rbxassetid://129967390"
+                local track = animator:LoadAnimation(fallbackAnim)
+                track:Play()
+            end
+        end
+    end)
 
--- ── POWER TAB
-WeaponsPower:CreateSection("Power - Senjata Super / Special")
-local selectedPower = WeaponDatabase.Power[1].name
-WeaponsPower:CreateDropdown({
-    Name = "Pilih Senjata Power",
-    Options = buildWeaponOptions("Power"),
-    Callback = function(opt)
-        local wep = getWeaponByLabel("Power", opt)
-        if wep then selectedPower = wep.name end
-    end
-})
-WeaponsPower:CreateButton({
-    Name = "Equip Senjata Power Dipilih",
-    Callback = function()
-        giveWeapon(selectedPower, 4)
-    end
-})
-WeaponsPower:CreateParagraph({
-    Title = "Daftar Power (13 senjata)",
-    Content = "Gravity Gun | Freeze Ray | Lightning Rod | [R$] Black Hole Gun | [R$] Tornado Gun | [R$] Shrink Ray | [R$] Grow Ray | Magnet Gun | [R$] Portal Gun | Wind Gun | [R$] Nuke Launcher | Taser | EMP"
-})
+    -- 3. Sound FX (Gunshot / Slash)
+    pcall(function()
+        local s = tool:FindFirstChildOfClass("Sound") or (tool:FindFirstChild("Handle") and tool.Handle:FindFirstChildOfClass("Sound"))
+        if s then
+            s:Play()
+        else
+            local snd = Instance.new("Sound")
+            snd.SoundId = "rbxassetid://240785604"
+            snd.Volume = 0.8
+            snd.Parent = SoundService
+            snd:Play()
+            game:GetService("Debris"):AddItem(snd, 1.5)
+        end
+    end)
 
--- ── MEDIC TAB
-WeaponsMedic:CreateSection("Medic - Alat Medis")
-local selectedMedic = WeaponDatabase.Medic[1].name
-WeaponsMedic:CreateDropdown({
-    Name = "Pilih Alat Medis",
-    Options = buildWeaponOptions("Medic"),
-    Callback = function(opt)
-        local wep = getWeaponByLabel("Medic", opt)
-        if wep then selectedMedic = wep.name end
-    end
-})
-WeaponsMedic:CreateButton({
-    Name = "Equip Alat Medis Dipilih",
-    Callback = function()
-        giveWeapon(selectedMedic, 5)
-    end
-})
-WeaponsMedic:CreateParagraph({
-    Title = "Daftar Medic (8 alat)",
-    Content = "Defibrillator | Medkit | Bandage | Syringe | Scanner | Blood Bag | AED | Splint"
-})
+    local hitPos = mouse.Hit and mouse.Hit.Position
+    local handle = tool:FindFirstChild("Handle") or tool:FindFirstChildWhichIsA("BasePart") or myRoot
+    local origin = handle.Position
 
--- ── ROBUX/PREMIUM TAB
-WeaponsRobux:CreateSection("Premium - Senjata Robux (Bypass Unlock)")
-WeaponsRobux:CreateParagraph({
-    Title = "Info Premium",
-    Content = "Senjata [R$] di game butuh Robux. Script ini bypass ToolController & RemoteEvent untuk memberi senjata tanpa beli. Pilih dari dropdown lalu klik Unlock."
-})
-local selectedRobux = WeaponDatabase.Robux[1].name
-WeaponsRobux:CreateDropdown({
-    Name = "Pilih Senjata Premium",
-    Options = buildWeaponOptions("Robux"),
-    Callback = function(opt)
-        local wep = getWeaponByLabel("Robux", opt)
-        if wep then selectedRobux = wep.name end
-    end
-})
-WeaponsRobux:CreateButton({
-    Name = "Unlock + Equip Senjata Premium",
-    Callback = function()
+    if hitPos then
+        -- 4. Visible Bullet Tracer
         pcall(function()
-            local attrName = "Unlocked_" .. selectedRobux:gsub("%s+", "_")
-            LocalPlayer:SetAttribute(attrName, true)
-            LocalPlayer:SetAttribute("HRR_Premium", true)
-            LocalPlayer:SetAttribute("HRR_Robux", 999999)
+            local dist = (hitPos - origin).Magnitude
+            if dist < 800 then
+                local tracer = Instance.new("Part")
+                tracer.Size = Vector3.new(0.14, 0.14, dist)
+                tracer.CFrame = CFrame.lookAt((origin + hitPos) / 2, hitPos)
+                tracer.Material = Enum.Material.Neon
+                tracer.Color = Color3.fromRGB(255, 230, 75)
+                tracer.Anchored = true
+                tracer.CanCollide = false
+                tracer.Parent = workspace
+                task.delay(0.06, function() tracer:Destroy() end)
+            end
         end)
-        giveWeapon(selectedRobux, 1)
-    end
-})
 
+        -- 5. Hit Detection & Server KO Kill
+        pcall(function()
+            local targetModel = nil
+            if mouse.Target and mouse.Target.Parent and mouse.Target.Parent ~= char then
+                local p = mouse.Target.Parent
+                if p:FindFirstChildOfClass("Humanoid") then
+                    targetModel = p
+                elseif p.Parent and p.Parent:FindFirstChildOfClass("Humanoid") then
+                    targetModel = p.Parent
+                end
+            end
+
+            if not targetModel then
+                local rayParams = RaycastParams.new()
+                rayParams.FilterType = Enum.RaycastFilterType.Exclude
+                rayParams.FilterDescendantsInstances = { char }
+                local dir = (hitPos - origin).Unit * 800
+                local result = workspace:Raycast(origin, dir, rayParams)
+                if result and result.Instance and result.Instance.Parent ~= char then
+                    local p = result.Instance.Parent
+                    if p:FindFirstChildOfClass("Humanoid") then
+                        targetModel = p
+                    elseif p.Parent and p.Parent:FindFirstChildOfClass("Humanoid") then
+                        targetModel = p.Parent
+                    end
+                end
+            end
+
+            -- Jika mengenai dummy atau target
+            if targetModel and targetModel ~= char then
+                -- A) Touch interest ke handle agar script server senjata mendeteksi pukulan/tembakan dan kill tercatat di server KO
+                if handle and firetouchinterest then
+                    for _, bp in ipairs(targetModel:GetChildren()) do
+                        if bp:IsA("BasePart") then
+                            firetouchinterest(handle, bp, 0)
+                            firetouchinterest(handle, bp, 1)
+                        end
+                    end
+                end
+                -- B) Hancurkan joints / instant kill
+                killDummyInstantly(targetModel)
+                -- C) Kirim notifikasi kill ke server
+                notifyKillToServer(targetModel)
+            end
+        end)
+    end
+end
+
+-- Bersihkan hook lama jika re-execute
+if getgenv()._UNIONSAL_WEAPON_CONNS then
+    for _, conn in ipairs(getgenv()._UNIONSAL_WEAPON_CONNS) do
+        pcall(function() conn:Disconnect() end)
+    end
+end
+getgenv()._UNIONSAL_WEAPON_CONNS = {}
+
+-- Pasang hook ke Mouse.Button1Down dan UserInputService.InputBegan
+pcall(function()
+    local mouse = LocalPlayer:GetMouse()
+    local conn1 = mouse.Button1Down:Connect(function()
+        fireEquippedWeapon()
+    end)
+    table.insert(getgenv()._UNIONSAL_WEAPON_CONNS, conn1)
+
+    local conn2 = UserInputService.InputBegan:Connect(function(input, gpe)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            fireEquippedWeapon()
+        end
+    end)
+    table.insert(getgenv()._UNIONSAL_WEAPON_CONNS, conn2)
+end)
 
 -- ╔═══════════════════════════════════════════╗
 -- ║  TAB 4: COMBAT & TOOLS                    ║
@@ -2888,7 +1755,9 @@ ToggleObjects.FastAttack = CombatTab:CreateToggle({
             task.spawn(function()
                 while RagdollGame.FastAttackActive do
                     if UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then
-                        swingOrShootTool()
+                        local char = getCharacter()
+                        local tool = char and char:FindFirstChildOfClass("Tool")
+                        if tool then pcall(function() fireEquippedWeapon() end) end
                         task.wait(0.04)
                     else
                         task.wait(0.1)
@@ -2959,7 +1828,7 @@ CombatTab:CreateButton({
 })
 
 -- ╔═══════════════════════════════════════════╗
--- ║  TAB 3: PLAYER & DEFENSE                  ║
+-- ║  TAB 5: PLAYER & DEFENSE                  ║
 -- ╚═══════════════════════════════════════════╝
 local PlayerTab = Window:CreateTab("Player", "user", "Main")
 PlayerTab:CreateSection("Proteksi Fisika & Anti-Ragdoll")
@@ -3014,7 +1883,6 @@ PlayerTab:CreateButton({
 
 PlayerTab:CreateSection("Mobilitas & Gerakan")
 
--- Fly Mode
 local flying = false
 local flySpeed = 50
 local flyBV, flyBG = nil, nil
@@ -3204,8 +2072,6 @@ ToggleObjects.AntiAfk = PlayerTab:CreateToggle({
     end
 })
 
--- (Salin Koordinat dipindah ke tab Teleport)
-
 PlayerTab:CreateButton({
     Name = "Reset Karakter / Respawn",
     Callback = function() local h = getHumanoid(); if h then h.Health = 0 end end
@@ -3220,11 +2086,10 @@ PlayerTab:CreateButton({
 })
 
 -- ╔═══════════════════════════════════════════╗
--- ║  TAB 4: TELEPORT                          ║
+-- ║  TAB 6: TELEPORT                          ║
 -- ╚═══════════════════════════════════════════╝
 local TpTab = Window:CreateTab("Teleport", "navigation", "Main")
 
--- Helper: scan map untuk lokasi
 local function findMapLocation(keywords)
     for _, obj in ipairs(workspace:GetDescendants()) do
         if obj:IsA("BasePart") or obj:IsA("Model") then
@@ -3258,7 +2123,6 @@ local function tpTo(cf, label)
     end
 end
 
--- ── Lokasi Map HRR
 TpTab:CreateSection("Lokasi Map Utama")
 
 TpTab:CreateButton({
@@ -3274,8 +2138,11 @@ TpTab:CreateButton({
     Name = "Kipas Raksasa (The Big Fan)",
     Callback = function()
         local fanCf = findBigFan()
-        if type(fanCf) == "userdata" then tpTo(fanCf, "Kipas Raksasa")
-        else tpTo(CFrame.new(fanCf.Position), "Kipas Raksasa") end
+        if type(fanCf) == "userdata" and fanCf.Position then
+            tpTo(fanCf, "Kipas Raksasa")
+        else
+            tpTo(CFrame.new(0, 50, 0), "Kipas Raksasa")
+        end
     end
 })
 
@@ -3498,7 +2365,7 @@ TpTab:CreateButton({
 })
 
 -- ╔═══════════════════════════════════════════╗
--- ║  TAB 5: VISUALS & ESP                     ║
+-- ║  TAB 7: VISUALS & ESP                     ║
 -- ╚═══════════════════════════════════════════╝
 local VisualTab = Window:CreateTab("Visuals", "eye", "Main")
 VisualTab:CreateSection("ESP & Scanner Visual")
@@ -3640,7 +2507,7 @@ ToggleObjects.PlayerEsp = VisualTab:CreateToggle({
 })
 
 -- ╔═══════════════════════════════════════════╗
--- ║  TAB 6: SETTINGS (CONFIG)                 ║
+-- ║  TAB 8: SETTINGS (CONFIG)                 ║
 -- ╚═══════════════════════════════════════════╝
 local SettingsTab = Window:CreateTab("Settings", "settings", "Config")
 SettingsTab:CreateSection("Keybinds & Shortcut Menu")
@@ -3651,7 +2518,6 @@ SettingsTab:CreateKeybind({
     Callback = function(newKey)
         Window.ToggleKey = newKey
         ConfigRegistry.ToggleKey = newKey.Name
-        notifyStateChange("ToggleKey", newKey.Name)
         Window:Notify({ Title = "Keybind Disimpan", Content = "Tombol menu diubah ke: [" .. newKey.Name .. "]", Duration = 3 })
     end
 })
@@ -3659,6 +2525,9 @@ SettingsTab:CreateKeybind({
 SettingsTab:CreateParagraph({
     Title = "Daftar Shortcut Hyper-Realistic Ragdoll",
     Content = "• Buka/Tutup UI: Tekan tombol yang telah diatur (Default: RightShift).\n" ..
+              "• Revive All Ragdoll: Tekan tombol [ R ] di keyboard.\n" ..
+              "• Respawn Karakter: Tekan tombol [ G ] di keyboard.\n" ..
+              "• Scan Dummy X-Ray: Tekan tombol [ V ] di keyboard.\n" ..
               "• Pop-up Kotak Mini: Klik kotak kecil di kiri saat tombol strip [ — ] ditekan.\n" ..
               "• Resize Window: Tarik grip pojok kanan bawah seperti aplikasi Windows.\n" ..
               "• Ganti Tema: Klik ikon matahari di kanan atas untuk White/Dark mode."
@@ -3670,7 +2539,6 @@ ToggleObjects.FpsBoost = SettingsTab:CreateToggle({
     CurrentValue = false,
     Callback = function(v)
         applyFpsBoost(v)
-        notifyStateChange("FpsBoost", v)
         Window:Notify({ Title = "FPS Boost", Content = v and "FPS Boost diaktifkan!" or "FPS Boost dinonaktifkan.", Duration = 2 })
     end
 })
@@ -3680,40 +2548,20 @@ ToggleObjects.PotatoGraphics = SettingsTab:CreateToggle({
     CurrentValue = false,
     Callback = function(v)
         applyPotatoGraphics(v)
-        notifyStateChange("PotatoGraphics", v)
         Window:Notify({ Title = "Grafik Potato", Content = v and "Grafik Potato aktif! Tekstur dihilangkan untuk FPS maksimal." or "Grafik Potato dinonaktifkan.", Duration = 3 })
     end
 })
 
-SettingsTab:CreateSection("Opsi Penyimpanan Device")
-ToggleObjects.AutoSave = SettingsTab:CreateToggle({
-    Name = "Auto-Save Konfigurasi Otomatis (Per Device)",
-    CurrentValue = true,
-    Callback = function(v)
-        ConfigRegistry.AutoSave = v
-        Window:Notify({ Title = "Auto-Save", Content = v and "Auto-Save aktif! Setiap perubahan langsung tersimpan." or "Auto-Save dinonaktifkan.", Duration = 2 })
-    end
-})
-
-SettingsTab:CreateButton({
-    Name = "Simpan Konfigurasi Sekarang (Device Ini)",
-    Callback = function()
-        saveDeviceConfig(true)
-    end
-})
-
-SettingsTab:CreateButton({
-    Name = "Muat Ulang Konfigurasi Tersimpan",
-    Callback = function()
-        loadDeviceConfig(true)
-    end
-})
-
 -- ╔═══════════════════════════════════════════╗
--- ║  TAB 7: CONFIGS (CONFIG)                  ║
+-- ║  TAB 9: CONFIGS (CONFIG)                  ║
 -- ╚═══════════════════════════════════════════╝
 local ConfigsTab = Window:CreateTab("Configs", "folder", "Config")
-ConfigsTab:CreateSection("Discord Webhook Integration")
+ConfigsTab:CreateSection("Discord Webhook Integration (Tersimpan Persisten)")
+
+ConfigsTab:CreateParagraph({
+    Title = "Penyimpanan Webhook",
+    Content = "Pengaturan gameplay otomatis di-reset setiap kali keluar/masuk game baru. HANYA koneksi bot Webhook yang disimpan terus menerus hingga kamu memutuskan koneksinya."
+})
 
 InputObjects.WebhookUrl = ConfigsTab:CreateInput({
     Name = "Discord Webhook URL",
@@ -3721,8 +2569,8 @@ InputObjects.WebhookUrl = ConfigsTab:CreateInput({
     Callback = function(val)
         webhookUrl = string.gsub(val or "", "^%s*(.-)%s*$", "%1")
         ConfigRegistry.WebhookUrl = webhookUrl
-        notifyStateChange("WebhookUrl", webhookUrl)
-        Window:Notify({ Title = "Webhook", Content = "URL Webhook disimpan.", Duration = 2 })
+        saveWebhookConfig()
+        Window:Notify({ Title = "Webhook", Content = "URL Webhook disimpan persisten.", Duration = 2 })
     end
 })
 
@@ -3730,32 +2578,26 @@ ToggleObjects.SendOnExec = ConfigsTab:CreateToggle({
     Name = "Kirim Log saat Script Dieksekusi",
     CurrentValue = true,
     Callback = function(v)
-        sendOnExec = v
         ConfigRegistry.SendOnExec = v
-        notifyStateChange("SendOnExec", v)
+        saveWebhookConfig()
     end
 })
 
-ToggleObjects.SendOnWin = ConfigsTab:CreateToggle({
+ToggleObjects.SendOnKo = ConfigsTab:CreateToggle({
     Name = "Kirim Log saat KO Dummy Berhasil",
     CurrentValue = true,
     Callback = function(v)
-        sendOnKo = v
-        ConfigRegistry.SendOnWin = v
-        notifyStateChange("SendOnWin", v)
+        ConfigRegistry.SendOnKo = v
+        saveWebhookConfig()
     end
 })
 
 local function sendDiscordWebhook(embedData)
     if webhookUrl == "" or not string.find(webhookUrl, "discord%.com/api/webhooks") then
-        Window:Notify({ Title = "Webhook Error", Content = "URL Webhook tidak valid! Masukkan URL Discord yang benar.", Duration = 3 })
         return false
     end
     local http = syn and syn.request or http_request or request or (http and http.request)
-    if not http then
-        Window:Notify({ Title = "Webhook Error", Content = "Executor kamu tidak mendukung HTTP request.", Duration = 3 })
-        return false
-    end
+    if not http then return false end
     local payload = HttpService:JSONEncode({
         username = "Unionsal Hub Logger",
         avatar_url = "https://i.imgur.com/8Q9Z5bX.png",
@@ -3776,13 +2618,12 @@ ConfigsTab:CreateButton({
     Name = "Kirim Pesan Uji Coba (Test Webhook)",
     Callback = function()
         local embed = {
-            title = "Unionsal Hub v1.3 • Webhook Connected",
+            title = "Unionsal Hub • Webhook Connected",
             description = "Webhook berhasil terhubung dengan client Roblox!",
             color = 8864235,
             fields = {
                 { name = "Player", value = LocalPlayer.Name .. " (@" .. LocalPlayer.DisplayName .. ")", inline = true },
                 { name = "Game", value = "Hyper-Realistic Ragdoll", inline = true },
-                { name = "Device ID", value = string.sub(currentDeviceId, 1, 12) .. "...", inline = true },
                 { name = "Place ID", value = tostring(game.PlaceId), inline = true },
                 { name = "Waktu", value = os.date("%H:%M:%S - %d/%m/%Y"), inline = false }
             },
@@ -3791,45 +2632,36 @@ ConfigsTab:CreateButton({
         local success = sendDiscordWebhook(embed)
         if success then
             Window:Notify({ Title = "Webhook Sukses", Content = "Pesan uji coba berhasil terkirim ke Discord!", Duration = 3 })
+        else
+            Window:Notify({ Title = "Webhook Gagal", Content = "Pastikan URL Discord Webhook valid.", Duration = 3 })
         end
     end
 })
 
-ConfigsTab:CreateSection("Penyimpanan Profil Konfigurasi (Device Check)")
-ConfigsTab:CreateLabel("Device ID Terdeteksi: " .. string.sub(currentDeviceId, 1, 16) .. "...")
-
 ConfigsTab:CreateButton({
-    Name = "Simpan Konfigurasi (Save Config)",
+    Name = "Putuskan Koneksi Bot / Reset Webhook",
     Callback = function()
-        saveDeviceConfig(true)
+        deleteWebhookConfig()
+        Window:Notify({ Title = "Webhook Diputus", Content = "Koneksi bot webhook diputus dan file penyimpanan dihapus.", Duration = 3 })
     end
 })
 
-ConfigsTab:CreateButton({
-    Name = "Muat Konfigurasi (Load Config)",
-    Callback = function()
-        loadDeviceConfig(true)
-    end
-})
-
-ConfigsTab:CreateButton({
-    Name = "Reset Konfigurasi ke Default (Reset Config)",
-    Callback = function()
-        pcall(function()
-            if delfile and isfile and isfile(CONFIG_FILE) then
-                delfile(CONFIG_FILE)
-            end
-        end)
-        Window:Notify({ Title = "Config Reset", Content = "File konfigurasi dihapus. Pengaturan kembali ke default.", Duration = 3 })
-    end
-})
-
--- ═══════════════════════════════════════════
---  AUTO-LOAD SAAT EXECUTE (DEVICE VERIFICATION)
--- ═══════════════════════════════════════════
+-- Otomatis muat webhook tersimpan saat execute
 task.spawn(function()
-    task.wait(0.5)
-    loadDeviceConfig(true)
+    task.wait(0.3)
+    loadWebhookConfig()
+    if ConfigRegistry.SendOnExec and ConfigRegistry.WebhookUrl ~= "" then
+        sendDiscordWebhook({
+            title = "Unionsal Hub • Script Executed",
+            description = "Player **" .. LocalPlayer.Name .. "** mengeksekusi Unionsal Hub.",
+            color = 0x66FF66,
+            fields = {
+                { name = "Game", value = "Hyper-Realistic Ragdoll", inline = true },
+                { name = "Waktu", value = os.date("%H:%M:%S"), inline = true }
+            },
+            footer = { text = "Unionsal Script Hub • .gg/unionsal" }
+        })
+    end
 end)
 
 -- ═══════════════════════════════════════════
@@ -3838,6 +2670,6 @@ end)
 task.wait(0.5)
 Window:Notify({
     Title   = "unionsal",
-    Content = "Hyper-Realistic Ragdoll v1.3 aktif! Kill All Dummies & Big Fan siap digunakan.",
+    Content = "Hyper-Realistic Ragdoll v1.3 aktif! Siap digunakan.",
     Duration = 5,
 })
