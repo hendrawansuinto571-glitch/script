@@ -1,7 +1,7 @@
 -- ╔══════════════════════════════════════════════════════════════╗
--- ║               NEMESIS SCRIPT HUB — MAIN ENGINE               ║
--- ║              UI Framework, Bento Dashboard & Loader          ║
--- ║                        .gg/nemesishub                        ║
+-- ║              UNIONSAL SCRIPT HUB — MAIN ENGINE               ║
+-- ║            UI Framework, Bento Dashboard & Loader            ║
+-- ║                       .gg/unionsal                           ║
 -- ╚══════════════════════════════════════════════════════════════╝
 
 local CoreGui         = game:GetService("CoreGui")
@@ -37,19 +37,23 @@ local ICONS = {
     sliders     = "rbxassetid://7734059095",
     settings    = "rbxassetid://7734053495",
     folder      = "rbxassetid://7733955511",
-    play        = "rbxassetid://7734022107",
-    gamepad     = "rbxassetid://7733955740",
-    activity    = "rbxassetid://7733658504",
-    history     = "rbxassetid://7733960012",
+    play        = "rbxassetid://7734032000",
+    gamepad     = "rbxassetid://7733799901",
+    activity    = "rbxassetid://7743878148",
+    wifi        = "rbxassetid://7743878148",
+    storage     = "rbxassetid://7733965118",
+    monitor     = "rbxassetid://7733965118",
+    update      = "rbxassetid://7734053495",
+    history     = "rbxassetid://7734053495",
     clock       = "rbxassetid://7733911828",
     search      = "rbxassetid://7734052925",
     star        = "rbxassetid://7734068495",
     bell        = "rbxassetid://7733674602",
+    sun         = "rbxassetid://7734058495",
+    moon        = "rbxassetid://7733993211",
     chevronDown = "rbxassetid://7733717444",
     chevronRight= "rbxassetid://7733717646",
     diamond     = "rbxassetid://7733924046",
-    wifi        = "rbxassetid://7734093446",
-    monitor     = "rbxassetid://7733990288",
     close       = "rbxassetid://7743878857",
     minus       = "rbxassetid://7733978098",
     navigation  = "rbxassetid://7733993211",
@@ -59,25 +63,49 @@ local ICONS = {
 }
 
 -- ═══════════════════════════════════════════
---  COLOR PALETTE (NEMESIS DARK GLASS)
+--  COLOR PALETTE (UNIONSAL DARK & WHITE THEMES)
 -- ═══════════════════════════════════════════
-local THEME = {
-    BgMain        = Color3.fromRGB(15, 12, 22),
-    BgSidebar     = Color3.fromRGB(12, 10, 18),
-    BgCard        = Color3.fromRGB(22, 17, 34),
-    BgCardHover   = Color3.fromRGB(28, 22, 42),
-    BgPill        = Color3.fromRGB(28, 22, 40),
-    Stroke        = Color3.fromRGB(44, 36, 62),
-    StrokeLight   = Color3.fromRGB(65, 52, 90),
-    AccentPurple  = Color3.fromRGB(135, 65, 235),
-    AccentNeon    = Color3.fromRGB(175, 110, 255),
-    AccentVipGold = Color3.fromRGB(230, 185, 80),
-    LiveGreen     = Color3.fromRGB(70, 215, 130),
-    TextWhite     = Color3.fromRGB(255, 255, 255),
-    TextSecondary = Color3.fromRGB(165, 155, 185),
-    TextMuted     = Color3.fromRGB(110, 100, 135),
-    ErrorRed      = Color3.fromRGB(255, 65, 65),
+local THEMES = {
+    Dark = {
+        BgMain        = Color3.fromRGB(15, 12, 22),
+        BgSidebar     = Color3.fromRGB(12, 10, 18),
+        BgCard        = Color3.fromRGB(22, 17, 34),
+        BgCardHover   = Color3.fromRGB(28, 22, 42),
+        BgPill        = Color3.fromRGB(28, 22, 40),
+        Stroke        = Color3.fromRGB(44, 36, 62),
+        StrokeLight   = Color3.fromRGB(65, 52, 90),
+        AccentPurple  = Color3.fromRGB(135, 65, 235),
+        AccentNeon    = Color3.fromRGB(175, 110, 255),
+        AccentVipGold = Color3.fromRGB(230, 185, 80),
+        LiveGreen     = Color3.fromRGB(70, 215, 130),
+        TextWhite     = Color3.fromRGB(255, 255, 255),
+        TextSecondary = Color3.fromRGB(165, 155, 185),
+        TextMuted     = Color3.fromRGB(110, 100, 135),
+        ErrorRed      = Color3.fromRGB(255, 65, 65),
+    },
+    Light = {
+        BgMain        = Color3.fromRGB(244, 244, 248),
+        BgSidebar     = Color3.fromRGB(235, 235, 242),
+        BgCard        = Color3.fromRGB(255, 255, 255),
+        BgCardHover   = Color3.fromRGB(246, 246, 252),
+        BgPill        = Color3.fromRGB(238, 238, 246),
+        Stroke        = Color3.fromRGB(220, 220, 232),
+        StrokeLight   = Color3.fromRGB(200, 200, 216),
+        AccentPurple  = Color3.fromRGB(125, 55, 225),
+        AccentNeon    = Color3.fromRGB(145, 75, 240),
+        AccentVipGold = Color3.fromRGB(210, 165, 60),
+        LiveGreen     = Color3.fromRGB(40, 180, 100),
+        TextWhite     = Color3.fromRGB(25, 22, 35),
+        TextSecondary = Color3.fromRGB(95, 90, 115),
+        TextMuted     = Color3.fromRGB(145, 140, 160),
+        ErrorRed      = Color3.fromRGB(230, 45, 45),
+    }
 }
+
+local THEME = {}
+for k, v in pairs(THEMES.Dark) do
+    THEME[k] = v
+end
 
 -- Parent Gui Resolver
 local function getGuiParent()
@@ -103,7 +131,7 @@ function DataServices:GetGlobalExecutions()
     local count = 1284 -- Default base fallback
     local ok = pcall(function()
         -- Free CounterAPI hit
-        local url = "https://api.counterapi.dev/v1/nemesis_script_hub/executions/up"
+        local url = "https://api.counterapi.dev/v1/unionsal_script_hub/executions/up"
         local res = nil
         if syn and syn.request then
             local r = syn.request({ Url = url, Method = "GET" })
@@ -267,7 +295,7 @@ local function validateGame()
     if not gameInfo then
         -- Game tidak didukung: Tampilkan kick screen modern glass bento lalu kick
         local kickGui = Instance.new("ScreenGui")
-        kickGui.Name = "NemesisKickScreen"
+        kickGui.Name = "UnionsalKickScreen"
         kickGui.ResetOnSpawn = false
         kickGui.IgnoreGuiInset = true
         kickGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
@@ -318,7 +346,7 @@ local function validateGame()
         desc.Size = UDim2.new(1, -40, 0, 48)
         desc.Position = UDim2.new(0, 20, 0, 108)
         desc.BackgroundTransparency = 1
-        desc.Text = "Script Nemesis Hub tidak mendukung PlaceId ini (" .. tostring(placeId) .. ").\nKamu akan dikeluarkan dari game dalam 3 detik."
+        desc.Text = "Script Unionsal Hub tidak mendukung PlaceId ini (" .. tostring(placeId) .. ").\nKamu akan dikeluarkan dari game dalam 3 detik."
         desc.Font = Enum.Font.Gotham
         desc.TextSize = 12
         desc.TextColor3 = THEME.TextSecondary
@@ -349,7 +377,7 @@ local function validateGame()
         TweenService:Create(pBarFill, TweenInfo.new(3, Enum.EasingStyle.Linear), { Size = UDim2.new(0, 0, 1, 0) }):Play()
 
         task.wait(3)
-        LocalPlayer:Kick("[Nemesis Hub] Game tidak didukung! PlaceId: " .. tostring(placeId))
+        LocalPlayer:Kick("[Unionsal Hub] Game tidak didukung! PlaceId: " .. tostring(placeId))
         return nil
     end
 
@@ -361,7 +389,7 @@ end
 -- ═══════════════════════════════════════════
 local function showIntroScreen(gameInfo, onFinish)
     local screenGui = Instance.new("ScreenGui")
-    screenGui.Name = "NemesisIntroScreen"
+    screenGui.Name = "UnionsalIntroScreen"
     screenGui.ResetOnSpawn = false
     screenGui.IgnoreGuiInset = true
     screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
@@ -419,7 +447,7 @@ local function showIntroScreen(gameInfo, onFinish)
     brandTitle.Size = UDim2.new(0, 150, 0, 18)
     brandTitle.Position = UDim2.new(0, 34, 0, 0)
     brandTitle.BackgroundTransparency = 1
-    brandTitle.Text = "NEMESIS"
+    brandTitle.Text = "unionsal"
     brandTitle.Font = Enum.Font.GothamBold
     brandTitle.TextSize = 17
     brandTitle.TextColor3 = THEME.TextWhite
@@ -430,7 +458,7 @@ local function showIntroScreen(gameInfo, onFinish)
     brandSub.Size = UDim2.new(0, 150, 0, 14)
     brandSub.Position = UDim2.new(0, 34, 0, 18)
     brandSub.BackgroundTransparency = 1
-    brandSub.Text = ".gg/nemesishub"
+    brandSub.Text = ".gg/unionsal"
     brandSub.Font = Enum.Font.Gotham
     brandSub.TextSize = 11
     brandSub.TextColor3 = THEME.TextSecondary
@@ -499,7 +527,7 @@ local function showIntroScreen(gameInfo, onFinish)
     userLabel.Size = UDim2.new(1, -40, 0, 16)
     userLabel.Position = UDim2.new(0, 20, 0, 204)
     userLabel.BackgroundTransparency = 1
-    userLabel.Text = "@" .. LocalPlayer.Name .. "  •  " .. (gameInfo and gameInfo.name or "Nemesis")
+    userLabel.Text = "@" .. LocalPlayer.Name .. "  •  " .. (gameInfo and gameInfo.name or "unionsal")
     userLabel.Font = Enum.Font.Gotham
     userLabel.TextSize = 12
     userLabel.TextColor3 = THEME.TextSecondary
@@ -602,9 +630,12 @@ local function showIntroScreen(gameInfo, onFinish)
 end
 
 -- ═══════════════════════════════════════════
---  NEMESIS UI ENGINE (BENTO DASHBOARD & TABS)
+--  UNIONSAL UI ENGINE (BENTO DASHBOARD & TABS)
 -- ═══════════════════════════════════════════
-local NemesisHub = {}
+local UnionsalHub = {}
+local NemesisHub = UnionsalHub
+getgenv().UnionsalHub = UnionsalHub
+getgenv().NemesisHub = UnionsalHub
 NemesisHub.__index = NemesisHub
 
 
@@ -642,10 +673,10 @@ local function makeSmoothScroll(scrollFrame, scrollStep)
     end)
 end
 
-function NemesisHub:CreateWindow(config)
+function UnionsalHub:CreateWindow(config)
     config = config or {}
-    local TitleName    = config.Name or "NEMESIS"
-    local SubtitleText = config.Subtitle or ".gg/nemesishub"
+    local TitleName    = config.Name or "unionsal"
+    local SubtitleText = config.Subtitle or ".gg/unionsal"
     local ActiveGame   = config.GameName or "Blush Canyon"
     local ActiveScript = config.ScriptName or "blush.lua"
     local HubVersion   = config.Version or "v1.3"
@@ -656,11 +687,12 @@ function NemesisHub:CreateWindow(config)
         GameName = ActiveGame,
         ScriptName = ActiveScript,
         Version = HubVersion,
+        ToggleKey = Enum.KeyCode.RightShift,
     }
 
     -- Root ScreenGui
     local ScreenGui = Instance.new("ScreenGui")
-    ScreenGui.Name = "NemesisWindowGui"
+    ScreenGui.Name = "UnionsalWindowGui"
     ScreenGui.ResetOnSpawn = false
     ScreenGui.IgnoreGuiInset = true
     ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
@@ -851,6 +883,18 @@ function NemesisHub:CreateWindow(config)
     bsText.TextXAlignment = Enum.TextXAlignment.Left
     bsText.Parent = BottomSettings
 
+    BottomSettings.MouseButton1Click:Connect(function()
+        if Window.Tabs["Settings"] then
+            if Window.SelectTab then
+                Window.SelectTab(Window.Tabs["Settings"])
+            elseif Window.Tabs["Settings"].NavButton then
+                for _, conn in ipairs(getconnections and getconnections(Window.Tabs["Settings"].NavButton.MouseButton1Click) or {}) do
+                    conn:Fire()
+                end
+            end
+        end
+    end)
+
     -- ╔══════════════════════════════╗
     -- ║  RIGHT CONTENT CONTAINER     ║
     -- ╚══════════════════════════════╝
@@ -892,10 +936,10 @@ function NemesisHub:CreateWindow(config)
     PageSubtitle.TextXAlignment = Enum.TextXAlignment.Left
     PageSubtitle.Parent = HeaderBar
 
-    -- Top Right Tools (Search, Favorite, Bell, Close, Minimize)
+    -- Top Right Tools (Search, Theme Toggle, Minimize Strip, Close)
     local ToolsContainer = Instance.new("Frame")
-    ToolsContainer.Size = UDim2.new(0, 320, 0, 34)
-    ToolsContainer.Position = UDim2.new(1, -340, 0, 18)
+    ToolsContainer.Size = UDim2.new(0, 310, 0, 34)
+    ToolsContainer.Position = UDim2.new(1, -325, 0, 18)
     ToolsContainer.BackgroundTransparency = 1
     ToolsContainer.Parent = HeaderBar
 
@@ -993,45 +1037,73 @@ function NemesisHub:CreateWindow(config)
         performSearch("")
     end)
 
-    -- Star & Bell
-    local starBtn = Instance.new("ImageButton")
-    starBtn.Size = UDim2.new(0, 18, 0, 18)
-    starBtn.Position = UDim2.new(0, 192, 0.5, -9)
-    starBtn.BackgroundTransparency = 1
-    starBtn.Image = ICONS.star
-    starBtn.ImageColor3 = THEME.TextSecondary
-    starBtn.Parent = ToolsContainer
+    -- Theme Toggle (Sun/Moon for Dark & White Mode)
+    local themeBtn = Instance.new("ImageButton")
+    themeBtn.Name = "ThemeToggleBtn"
+    themeBtn.Size = UDim2.new(0, 18, 0, 18)
+    themeBtn.Position = UDim2.new(0, 200, 0.5, -9)
+    themeBtn.BackgroundTransparency = 1
+    themeBtn.Image = ICONS.sun
+    themeBtn.ImageColor3 = THEME.TextSecondary
+    themeBtn.Parent = ToolsContainer
 
-    local bellBtn = Instance.new("ImageButton")
-    bellBtn.Size = UDim2.new(0, 18, 0, 18)
-    bellBtn.Position = UDim2.new(0, 220, 0.5, -9)
-    bellBtn.BackgroundTransparency = 1
-    bellBtn.Image = ICONS.bell
-    bellBtn.ImageColor3 = THEME.TextSecondary
-    bellBtn.Parent = ToolsContainer
+    themeBtn.MouseEnter:Connect(function()
+        TweenService:Create(themeBtn, TweenInfo.new(0.15), { ImageColor3 = THEME.AccentNeon }):Play()
+    end)
+    themeBtn.MouseLeave:Connect(function()
+        TweenService:Create(themeBtn, TweenInfo.new(0.15), { ImageColor3 = THEME.TextSecondary }):Play()
+    end)
 
-    -- Close & Minimize
-    local minBtn = Instance.new("ImageButton")
-    minBtn.Size = UDim2.new(0, 16, 0, 16)
-    minBtn.Position = UDim2.new(0, 255, 0.5, -8)
+    -- Minimize Strip Button (Clean Horizontal Dash '—')
+    local minBtn = Instance.new("TextButton")
+    minBtn.Name = "MinimizeStripBtn"
+    minBtn.Size = UDim2.new(0, 20, 0, 20)
+    minBtn.Position = UDim2.new(0, 236, 0.5, -10)
     minBtn.BackgroundTransparency = 1
-    minBtn.Image = ICONS.minus
-    minBtn.ImageColor3 = THEME.TextSecondary
+    minBtn.Text = ""
+    minBtn.AutoButtonColor = false
     minBtn.Parent = ToolsContainer
 
+    local minDash = Instance.new("Frame")
+    minDash.Size = UDim2.new(0, 11, 0, 2)
+    minDash.Position = UDim2.new(0.5, -5, 0.5, -1)
+    minDash.BackgroundColor3 = THEME.TextSecondary
+    minDash.BorderSizePixel = 0
+    minDash.Parent = minBtn
+
+    local mdCorner = Instance.new("UICorner")
+    mdCorner.CornerRadius = UDim.new(1, 0)
+    mdCorner.Parent = minDash
+
+    minBtn.MouseEnter:Connect(function()
+        TweenService:Create(minDash, TweenInfo.new(0.15), { BackgroundColor3 = THEME.TextWhite }):Play()
+    end)
+    minBtn.MouseLeave:Connect(function()
+        TweenService:Create(minDash, TweenInfo.new(0.15), { BackgroundColor3 = THEME.TextSecondary }):Play()
+    end)
+
+    -- Close Button
     local closeBtn = Instance.new("ImageButton")
+    closeBtn.Name = "CloseBtn"
     closeBtn.Size = UDim2.new(0, 16, 0, 16)
-    closeBtn.Position = UDim2.new(0, 285, 0.5, -8)
+    closeBtn.Position = UDim2.new(0, 272, 0.5, -8)
     closeBtn.BackgroundTransparency = 1
     closeBtn.Image = ICONS.close
     closeBtn.ImageColor3 = THEME.TextSecondary
     closeBtn.Parent = ToolsContainer
 
+    closeBtn.MouseEnter:Connect(function()
+        TweenService:Create(closeBtn, TweenInfo.new(0.15), { ImageColor3 = THEME.ErrorRed }):Play()
+    end)
+    closeBtn.MouseLeave:Connect(function()
+        TweenService:Create(closeBtn, TweenInfo.new(0.15), { ImageColor3 = THEME.TextSecondary }):Play()
+    end)
+
     -- ╔═══════════════════════════════════════════╗
     -- ║  FLOATING MINI POP-UP KOTAK WIDGET        ║
     -- ╚═══════════════════════════════════════════╝
     local MiniBox = Instance.new("Frame")
-    MiniBox.Name = "NemesisMiniKotak"
+    MiniBox.Name = "UnionsalMiniKotak"
     MiniBox.Size = UDim2.new(0, 48, 0, 48)
     MiniBox.Position = UDim2.new(0, 24, 0.5, -24)
     MiniBox.BackgroundColor3 = THEME.BgCard
@@ -1146,9 +1218,9 @@ function NemesisHub:CreateWindow(config)
         MiniBox.Visible = false
     end)
 
-    -- Toggle Hotkey (RightControl or RightShift)
+    -- Toggle Hotkey (Dynamic Window.ToggleKey or RightControl)
     UserInputService.InputBegan:Connect(function(input, gp)
-        if not gp and (input.KeyCode == Enum.KeyCode.RightControl or input.KeyCode == Enum.KeyCode.RightShift) then
+        if not gp and (input.KeyCode == (Window.ToggleKey or Enum.KeyCode.RightShift) or input.KeyCode == Enum.KeyCode.RightControl) then
             if isMinimized or not MainFrame.Visible then
                 restoreWindow()
             else
@@ -1156,6 +1228,64 @@ function NemesisHub:CreateWindow(config)
             end
         end
     end)
+
+    -- Windows-Style Resize Handle (Bottom-Right Drag)
+    local ResizeGrip = Instance.new("TextButton")
+    ResizeGrip.Name = "ResizeGrip"
+    ResizeGrip.Size = UDim2.new(0, 20, 0, 20)
+    ResizeGrip.Position = UDim2.new(1, -20, 1, -20)
+    ResizeGrip.BackgroundTransparency = 1
+    ResizeGrip.Text = ""
+    ResizeGrip.AutoButtonColor = false
+    ResizeGrip.ZIndex = 50
+    ResizeGrip.Parent = MainFrame
+
+    local function makeGripDot(gx, gy)
+        local d = Instance.new("Frame")
+        d.Size = UDim2.new(0, 3, 0, 3)
+        d.Position = UDim2.new(0, gx, 0, gy)
+        d.BackgroundColor3 = THEME.TextMuted
+        d.BorderSizePixel = 0
+        d.Parent = ResizeGrip
+        local dc = Instance.new("UICorner")
+        dc.CornerRadius = UDim.new(1, 0)
+        dc.Parent = d
+        return d
+    end
+    makeGripDot(13, 13)
+    makeGripDot(8, 13)
+    makeGripDot(13, 8)
+    makeGripDot(3, 13)
+    makeGripDot(8, 8)
+    makeGripDot(13, 3)
+
+    do
+        local resizing = false
+        local resizeStart, startSize
+
+        ResizeGrip.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                resizing = true
+                resizeStart = input.Position
+                startSize = Vector2.new(MainFrame.AbsoluteSize.X, MainFrame.AbsoluteSize.Y)
+
+                input.Changed:Connect(function()
+                    if input.UserInputState == Enum.UserInputState.End then
+                        resizing = false
+                    end
+                end)
+            end
+        end)
+
+        UserInputService.InputChanged:Connect(function(input)
+            if resizing and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+                local delta = input.Position - resizeStart
+                local newW = math.clamp(startSize.X + delta.X, 640, 1400)
+                local newH = math.clamp(startSize.Y + delta.Y, 440, 950)
+                MainFrame.Size = UDim2.new(0, newW, 0, newH)
+            end
+        end)
+    end
 
     -- Content Pages Container
     local PagesContainer = Instance.new("Frame")
@@ -1253,9 +1383,9 @@ function NemesisHub:CreateWindow(config)
     ucName.TextXAlignment = Enum.TextXAlignment.Left
     ucName.Parent = UserCard
 
-    -- Badges Row
+    -- Badges Row (Version Badge Only — Lifetime & Level Removed)
     local BadgesRow = Instance.new("Frame")
-    BadgesRow.Size = UDim2.new(0, 300, 0, 22)
+    BadgesRow.Size = UDim2.new(0, 200, 0, 22)
     BadgesRow.Position = UDim2.new(0, 92, 0, 60)
     BadgesRow.BackgroundTransparency = 1
     BadgesRow.Parent = UserCard
@@ -1268,7 +1398,7 @@ function NemesisHub:CreateWindow(config)
 
     -- Version Badge
     local vBadge = Instance.new("Frame")
-    vBadge.Size = UDim2.new(0, 48, 1, 0)
+    vBadge.Size = UDim2.new(0, 52, 1, 0)
     vBadge.BackgroundColor3 = Color3.fromRGB(60, 28, 105)
     vBadge.BorderSizePixel = 0
     vBadge.Parent = BadgesRow
@@ -1283,92 +1413,6 @@ function NemesisHub:CreateWindow(config)
     vbT.TextSize = 10
     vbT.TextColor3 = THEME.AccentNeon
     vbT.Parent = vBadge
-
-
-    -- Lifetime Badge
-    local lifeBadge = Instance.new("Frame")
-    lifeBadge.Size = UDim2.new(0, 72, 1, 0)
-    lifeBadge.BackgroundColor3 = THEME.BgPill
-    lifeBadge.BorderSizePixel = 0
-    lifeBadge.Parent = BadgesRow
-    local lifeC = Instance.new("UICorner")
-    lifeC.CornerRadius = UDim.new(0, 6)
-    lifeC.Parent = lifeBadge
-    local lifeStroke = Instance.new("UIStroke")
-    lifeStroke.Color = THEME.Stroke
-    lifeStroke.Thickness = 1
-    lifeStroke.Parent = lifeBadge
-    local lifeIcon = Instance.new("ImageLabel")
-    lifeIcon.Size = UDim2.new(0, 12, 0, 12)
-    lifeIcon.Position = UDim2.new(0, 6, 0.5, -6)
-    lifeIcon.BackgroundTransparency = 1
-    lifeIcon.Image = ICONS.clock
-    lifeIcon.ImageColor3 = THEME.TextSecondary
-    lifeIcon.Parent = lifeBadge
-    local lifeT = Instance.new("TextLabel")
-    lifeT.Size = UDim2.new(1, -22, 1, 0)
-    lifeT.Position = UDim2.new(0, 20, 0, 0)
-    lifeT.BackgroundTransparency = 1
-    lifeT.Text = "Lifetime"
-    lifeT.Font = Enum.Font.GothamMedium
-    lifeT.TextSize = 10
-    lifeT.TextColor3 = THEME.TextSecondary
-    lifeT.TextXAlignment = Enum.TextXAlignment.Left
-    lifeT.Parent = lifeBadge
-
-    -- Right Side Level & XP
-    local LevelBox = Instance.new("Frame")
-    LevelBox.Size = UDim2.new(0, 180, 0, 60)
-    LevelBox.Position = UDim2.new(1, -200, 0.5, -30)
-    LevelBox.BackgroundTransparency = 1
-    LevelBox.Parent = UserCard
-
-    local lvlLabel = Instance.new("TextLabel")
-    lvlLabel.Size = UDim2.new(1, 0, 0, 16)
-    lvlLabel.BackgroundTransparency = 1
-    lvlLabel.Text = "LEVEL  <b>24</b>"
-    lvlLabel.RichText = true
-    lvlLabel.Font = Enum.Font.Gotham
-    lvlLabel.TextSize = 13
-    lvlLabel.TextColor3 = THEME.TextSecondary
-    lvlLabel.TextXAlignment = Enum.TextXAlignment.Right
-    lvlLabel.Parent = LevelBox
-
-    local xpTrack = Instance.new("Frame")
-    xpTrack.Size = UDim2.new(1, 0, 0, 6)
-    xpTrack.Position = UDim2.new(0, 0, 0, 24)
-    xpTrack.BackgroundColor3 = Color3.fromRGB(36, 28, 52)
-    xpTrack.BorderSizePixel = 0
-    xpTrack.Parent = LevelBox
-    local xpTC = Instance.new("UICorner")
-    xpTC.CornerRadius = UDim.new(1, 0)
-    xpTC.Parent = xpTrack
-
-    local xpFill = Instance.new("Frame")
-    xpFill.Size = UDim2.new(0.68, 0, 1, 0)
-    xpFill.BackgroundColor3 = THEME.AccentPurple
-    xpFill.BorderSizePixel = 0
-    xpFill.Parent = xpTrack
-    local xpFC = Instance.new("UICorner")
-    xpFC.CornerRadius = UDim.new(1, 0)
-    xpFC.Parent = xpFill
-    local xpFGrad = Instance.new("UIGradient")
-    xpFGrad.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, THEME.AccentPurple),
-        ColorSequenceKeypoint.new(1, THEME.AccentNeon),
-    })
-    xpFGrad.Parent = xpFill
-
-    local xpText = Instance.new("TextLabel")
-    xpText.Size = UDim2.new(1, 0, 0, 14)
-    xpText.Position = UDim2.new(0, 0, 0, 36)
-    xpText.BackgroundTransparency = 1
-    xpText.Text = "680 / 1000 XP"
-    xpText.Font = Enum.Font.Gotham
-    xpText.TextSize = 10
-    xpText.TextColor3 = THEME.TextMuted
-    xpText.TextXAlignment = Enum.TextXAlignment.Right
-    xpText.Parent = LevelBox
 
     -- ╔═══════════════════════════════════════════╗
     -- ║  BENTO ROW 2 (EXECUTIONS & GAME USE)      ║
@@ -1499,51 +1543,17 @@ function NemesisHub:CreateWindow(config)
     gcSub.TextXAlignment = Enum.TextXAlignment.Left
     gcSub.Parent = GameUseCard
 
-    -- Game Name Big
+    -- Game Name Prominent (Without script badge, clean title only)
     local gcGameName = Instance.new("TextLabel")
-    gcGameName.Size = UDim2.new(1, -36, 0, 26)
+    gcGameName.Size = UDim2.new(1, -36, 0, 36)
     gcGameName.Position = UDim2.new(0, 18, 0, 64)
     gcGameName.BackgroundTransparency = 1
     gcGameName.Text = ActiveGame
     gcGameName.Font = Enum.Font.GothamBold
-    gcGameName.TextSize = 20
+    gcGameName.TextSize = 22
     gcGameName.TextColor3 = THEME.TextWhite
     gcGameName.TextXAlignment = Enum.TextXAlignment.Left
     gcGameName.Parent = GameUseCard
-
-    -- Script Badge
-    local gcScriptPill = Instance.new("Frame")
-    gcScriptPill.Size = UDim2.new(0, 130, 0, 24)
-    gcScriptPill.Position = UDim2.new(0, 18, 0, 98)
-    gcScriptPill.BackgroundColor3 = THEME.BgPill
-    gcScriptPill.BorderSizePixel = 0
-    gcScriptPill.Parent = GameUseCard
-    local gspC = Instance.new("UICorner")
-    gspC.CornerRadius = UDim.new(0, 6)
-    gspC.Parent = gcScriptPill
-    local gspS = Instance.new("UIStroke")
-    gspS.Color = THEME.Stroke
-    gspS.Thickness = 1
-    gspS.Parent = gcScriptPill
-    local gspDot = Instance.new("Frame")
-    gspDot.Size = UDim2.new(0, 6, 0, 6)
-    gspDot.Position = UDim2.new(0, 10, 0.5, -3)
-    gspDot.BackgroundColor3 = THEME.LiveGreen
-    gspDot.BorderSizePixel = 0
-    gspDot.Parent = gcScriptPill
-    local gspDotC = Instance.new("UICorner")
-    gspDotC.CornerRadius = UDim.new(1, 0)
-    gspDotC.Parent = gspDot
-    local gspText = Instance.new("TextLabel")
-    gspText.Size = UDim2.new(1, -24, 1, 0)
-    gspText.Position = UDim2.new(0, 22, 0, 0)
-    gspText.BackgroundTransparency = 1
-    gspText.Text = ActiveScript
-    gspText.Font = Enum.Font.GothamMedium
-    gspText.TextSize = 11
-    gspText.TextColor3 = THEME.TextWhite
-    gspText.TextXAlignment = Enum.TextXAlignment.Left
-    gspText.Parent = gcScriptPill
 
     -- ╔═══════════════════════════════════════════╗
     -- ║  BENTO ROW 3 (PERFORMANCE & CHANGELOGS)   ║
@@ -1585,7 +1595,7 @@ function NemesisHub:CreateWindow(config)
     pciImg.Size = UDim2.new(0, 16, 0, 16)
     pciImg.Position = UDim2.new(0.5, -8, 0.5, -8)
     pciImg.BackgroundTransparency = 1
-    pciImg.Image = ICONS.activity
+    pciImg.Image = ICONS.wifi
     pciImg.ImageColor3 = THEME.AccentNeon
     pciImg.Parent = pcIconBox
 
@@ -1604,7 +1614,7 @@ function NemesisHub:CreateWindow(config)
     pcSub.Size = UDim2.new(0, 180, 0, 14)
     pcSub.Position = UDim2.new(0, 18, 0, 48)
     pcSub.BackgroundTransparency = 1
-    pcSub.Text = "Current FPS"
+    pcSub.Text = "Current FPS & Network"
     pcSub.Font = Enum.Font.Gotham
     pcSub.TextSize = 11
     pcSub.TextColor3 = THEME.TextSecondary
@@ -1688,7 +1698,7 @@ function NemesisHub:CreateWindow(config)
     memIcon.Size = UDim2.new(0, 14, 0, 14)
     memIcon.Position = UDim2.new(0, 8, 0.5, -7)
     memIcon.BackgroundTransparency = 1
-    memIcon.Image = ICONS.monitor
+    memIcon.Image = ICONS.storage
     memIcon.ImageColor3 = THEME.TextSecondary
     memIcon.Parent = pcMemPill
 
@@ -1708,12 +1718,72 @@ function NemesisHub:CreateWindow(config)
     memTag.Size = UDim2.new(0, 50, 1, 0)
     memTag.Position = UDim2.new(1, -58, 0, 0)
     memTag.BackgroundTransparency = 1
-    memTag.Text = "MEM"
+    memTag.Text = "STORAGE"
     memTag.Font = Enum.Font.GothamBold
     memTag.TextSize = 10
     memTag.TextColor3 = THEME.AccentNeon
     memTag.TextXAlignment = Enum.TextXAlignment.Right
     memTag.Parent = pcMemPill
+
+        -- Theme Toggle (White Mode & Dark Mode Switcher)
+    local isDarkMode = true
+    themeBtn.MouseButton1Click:Connect(function()
+        isDarkMode = not isDarkMode
+        local currentPalette = isDarkMode and THEMES.Dark or THEMES.Light
+        for k, v in pairs(currentPalette) do
+            THEME[k] = v
+        end
+        themeBtn.Image = isDarkMode and ICONS.sun or ICONS.moon
+
+        local tInfo = TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+        TweenService:Create(MainFrame, tInfo, { BackgroundColor3 = THEME.BgMain }):Play()
+        TweenService:Create(mfStroke, tInfo, { Color = THEME.Stroke }):Play()
+        TweenService:Create(Sidebar, tInfo, { BackgroundColor3 = THEME.BgSidebar }):Play()
+        TweenService:Create(sbStroke, tInfo, { Color = THEME.Stroke }):Play()
+        TweenService:Create(PageTitle, tInfo, { TextColor3 = THEME.TextWhite }):Play()
+        TweenService:Create(PageSubtitle, tInfo, { TextColor3 = THEME.TextSecondary }):Play()
+        TweenService:Create(SearchBox, tInfo, { BackgroundColor3 = THEME.BgPill }):Play()
+        TweenService:Create(sStroke, tInfo, { Color = THEME.Stroke }):Play()
+        TweenService:Create(sInput, tInfo, { TextColor3 = THEME.TextWhite, PlaceholderColor3 = THEME.TextMuted }):Play()
+        TweenService:Create(BottomSettings, tInfo, { BackgroundColor3 = THEME.BgPill }):Play()
+        TweenService:Create(bsStroke, tInfo, { Color = THEME.Stroke }):Play()
+        TweenService:Create(bsText, tInfo, { TextColor3 = THEME.TextSecondary }):Play()
+
+        for _, c in ipairs({ UserCard, ExecCard, GameUseCard, PerfCard, LogsCard }) do
+            if c and c.Parent then
+                TweenService:Create(c, tInfo, { BackgroundColor3 = THEME.BgCard }):Play()
+                local st = c:FindFirstChildOfClass("UIStroke")
+                if st then TweenService:Create(st, tInfo, { Color = THEME.Stroke }):Play() end
+            end
+        end
+
+        for _, p in ipairs({ pcPingPill, pcMemPill }) do
+            if p and p.Parent then
+                TweenService:Create(p, tInfo, { BackgroundColor3 = THEME.BgPill }):Play()
+                local st = p:FindFirstChildOfClass("UIStroke")
+                if st then TweenService:Create(st, tInfo, { Color = THEME.Stroke }):Play() end
+            end
+        end
+
+        TweenService:Create(ucName, tInfo, { TextColor3 = THEME.TextWhite }):Play()
+        TweenService:Create(ucWelcome, tInfo, { TextColor3 = THEME.TextSecondary }):Play()
+        TweenService:Create(ecTitle, tInfo, { TextColor3 = THEME.TextWhite }):Play()
+        TweenService:Create(ecValue, tInfo, { TextColor3 = THEME.TextWhite }):Play()
+        TweenService:Create(gcTitle, tInfo, { TextColor3 = THEME.TextWhite }):Play()
+        TweenService:Create(gcGameName, tInfo, { TextColor3 = THEME.TextWhite }):Play()
+        TweenService:Create(pcTitle, tInfo, { TextColor3 = THEME.TextWhite }):Play()
+        TweenService:Create(pcFpsVal, tInfo, { TextColor3 = THEME.TextWhite }):Play()
+        TweenService:Create(pingText, tInfo, { TextColor3 = THEME.TextWhite }):Play()
+        TweenService:Create(memText, tInfo, { TextColor3 = THEME.TextWhite }):Play()
+        TweenService:Create(lcTitle, tInfo, { TextColor3 = THEME.TextWhite }):Play()
+        TweenService:Create(lcVersion, tInfo, { TextColor3 = THEME.TextWhite }):Play()
+
+        Window:Notify({
+            Title   = "Tema Tampilan",
+            Content = isDarkMode and "Dark Mode diaktifkan." or "White Mode diaktifkan.",
+            Duration= 2,
+        })
+    end)
 
     -- Register Listener to live performance updates
     table.insert(PerformanceMonitor.Listeners, function(fps, ping, mem)
@@ -1752,7 +1822,7 @@ function NemesisHub:CreateWindow(config)
     lciImg.Size = UDim2.new(0, 16, 0, 16)
     lciImg.Position = UDim2.new(0.5, -8, 0.5, -8)
     lciImg.BackgroundTransparency = 1
-    lciImg.Image = ICONS.history
+    lciImg.Image = ICONS.update
     lciImg.ImageColor3 = THEME.AccentNeon
     lciImg.Parent = lcIconBox
 
@@ -2039,6 +2109,7 @@ function NemesisHub:CreateWindow(config)
     -- Add Dashboard button
     addNavButton(DashboardTabObj, "grid", "Main", 11)
     selectTab(DashboardTabObj)
+    Window.SelectTab = selectTab
 
     -- ╔═══════════════════════════════════════════╗
     -- ║  TAB CREATION METHOD                      ║
@@ -2083,6 +2154,78 @@ function NemesisHub:CreateWindow(config)
         -- ═══════════════════════════════════════════
         --  TAB ELEMENT BUILDERS
         -- ═══════════════════════════════════════════
+
+                -- Keybind Setter
+        function tabObj:CreateKeybind(kConfig)
+            kConfig = kConfig or {}
+            local kName = kConfig.Name or "Keybind"
+            local curKey = kConfig.CurrentKey or Enum.KeyCode.RightShift
+            local cb = kConfig.Callback or function() end
+
+            local kbCard = Instance.new("Frame")
+            kbCard.Size = UDim2.new(1, 0, 0, 46)
+            kbCard.BackgroundColor3 = THEME.BgCard
+            kbCard.BorderSizePixel = 0
+            kbCard.Parent = TabPage
+
+            local kbcC = Instance.new("UICorner")
+            kbcC.CornerRadius = UDim.new(0, 10)
+            kbcC.Parent = kbCard
+            local kbcS = Instance.new("UIStroke")
+            kbcS.Color = THEME.Stroke
+            kbcS.Thickness = 1
+            kbcS.Parent = kbCard
+
+            local kbTitle = Instance.new("TextLabel")
+            kbTitle.Size = UDim2.new(0.6, 0, 1, 0)
+            kbTitle.Position = UDim2.new(0, 16, 0, 0)
+            kbTitle.BackgroundTransparency = 1
+            kbTitle.Text = kName
+            kbTitle.Font = Enum.Font.GothamMedium
+            kbTitle.TextSize = 12
+            kbTitle.TextColor3 = THEME.TextWhite
+            kbTitle.TextXAlignment = Enum.TextXAlignment.Left
+            kbTitle.Parent = kbCard
+
+            local kbBtn = Instance.new("TextButton")
+            kbBtn.Size = UDim2.new(0, 120, 0, 28)
+            kbBtn.Position = UDim2.new(1, -136, 0.5, -14)
+            kbBtn.BackgroundColor3 = THEME.BgPill
+            kbBtn.BorderSizePixel = 0
+            kbBtn.Text = "[" .. (typeof(curKey) == "EnumItem" and curKey.Name or tostring(curKey)) .. "]"
+            kbBtn.Font = Enum.Font.GothamBold
+            kbBtn.TextSize = 11
+            kbBtn.TextColor3 = THEME.AccentNeon
+            kbBtn.Parent = kbCard
+
+            local kbbC = Instance.new("UICorner")
+            kbbC.CornerRadius = UDim.new(0, 6)
+            kbbC.Parent = kbBtn
+            local kbbS = Instance.new("UIStroke")
+            kbbS.Color = THEME.Stroke
+            kbbS.Thickness = 1
+            kbbS.Parent = kbBtn
+
+            local listening = false
+            kbBtn.MouseButton1Click:Connect(function()
+                if listening then return end
+                listening = true
+                kbBtn.Text = "[Tekan Tombol...]"
+                kbBtn.TextColor3 = THEME.AccentVipGold
+
+                local conn
+                conn = UserInputService.InputBegan:Connect(function(input)
+                    if input.UserInputType == Enum.UserInputType.Keyboard then
+                        conn:Disconnect()
+                        listening = false
+                        curKey = input.KeyCode
+                        kbBtn.Text = "[" .. curKey.Name .. "]"
+                        kbBtn.TextColor3 = THEME.AccentNeon
+                        pcall(cb, curKey)
+                    end
+                end)
+            end)
+        end
 
         -- Section Divider
         function tabObj:CreateSection(secTitle)
@@ -2660,7 +2803,7 @@ function NemesisHub:CreateWindow(config)
 end
 
 -- Global Hub Notify
-function NemesisHub:Notify(config)
+function UnionsalHub:Notify(config)
     if NemesisHub.ActiveWindow then
         NemesisHub.ActiveWindow:Notify(config)
     end
@@ -2675,12 +2818,12 @@ getgenv().NemesisHub = NemesisHub
 -- ═══════════════════════════════════════════
 --  BUILT-IN MODULE LOADER (STANDALONE RUNNER)
 -- ═══════════════════════════════════════════
-function NemesisHub:LoadModule(scriptName, gameTitle)
+function UnionsalHub:LoadModule(scriptName, gameTitle)
     gameTitle = gameTitle or "Blush Canyon"
     
-    local Window = NemesisHub:CreateWindow({
-        Name       = "NEMESIS",
-        Subtitle   = ".gg/nemesishub",
+    local Window = UnionsalHub:CreateWindow({
+        Name       = "unionsal",
+        Subtitle   = ".gg/unionsal",
         GameName   = gameTitle,
         ScriptName = scriptName .. ".lua",
         Version    = "v1.3",
@@ -3018,7 +3161,7 @@ function NemesisHub:LoadModule(scriptName, gameTitle)
             end
         })
 
-        -- 4. TAB SHOP & PLAYER
+        -- 4. TAB SHOP
         local ShopTab = Window:CreateTab("Shop", "cart", "Main")
         ShopTab:CreateSection("Toko Gamepass")
         ShopTab:CreateButton({
@@ -3030,29 +3173,371 @@ function NemesisHub:LoadModule(scriptName, gameTitle)
             end
         })
 
+        -- 5. TAB PLAYER (EXPANDED FEATURES)
         local PlayerTab = Window:CreateTab("Player", "user", "Main")
-        PlayerTab:CreateSection("Informasi Player")
-        PlayerTab:CreateLabel("Username: @" .. LocalPlayer.Name)
-        PlayerTab:CreateLabel("Display Name: " .. LocalPlayer.DisplayName)
+        PlayerTab:CreateSection("Karakter & Fisika")
+
+        -- Fly Mode
+        local flying = false
+        local flySpeed = 50
+        local flyBV, flyBG = nil, nil
+        local flyConn = nil
+
+        local function startFly()
+            local root = getRoot()
+            local hum = getHum()
+            if not root or not hum then return end
+
+            flyBV = Instance.new("BodyVelocity")
+            flyBV.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+            flyBV.Velocity = Vector3.zero
+            flyBV.Parent = root
+
+            flyBG = Instance.new("BodyGyro")
+            flyBG.MaxTorque = Vector3.new(1e6, 1e6, 1e6)
+            flyBG.P = 10000
+            flyBG.CFrame = root.CFrame
+            flyBG.Parent = root
+
+            flyConn = RunService.RenderStepped:Connect(function()
+                if not flying or not root or not hum then return end
+                local cam = workspace.CurrentCamera
+                flyBG.CFrame = cam.CFrame
+
+                local moveDir = Vector3.zero
+                if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveDir = moveDir + cam.CFrame.LookVector end
+                if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveDir = moveDir - cam.CFrame.LookVector end
+                if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveDir = moveDir - cam.CFrame.RightVector end
+                if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveDir = moveDir + cam.CFrame.RightVector end
+                if UserInputService:IsKeyDown(Enum.KeyCode.Space) then moveDir = moveDir + Vector3.new(0, 1, 0) end
+                if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
+                    moveDir = moveDir - Vector3.new(0, 1, 0)
+                end
+
+                if moveDir.Magnitude > 0 then
+                    flyBV.Velocity = moveDir.Unit * flySpeed
+                else
+                    flyBV.Velocity = Vector3.zero
+                end
+            end)
+        end
+
+        local function stopFly()
+            if flyConn then flyConn:Disconnect(); flyConn = nil end
+            if flyBV then flyBV:Destroy(); flyBV = nil end
+            if flyBG then flyBG:Destroy(); flyBG = nil end
+        end
+
+        PlayerTab:CreateToggle({
+            Name = "Fly Mode (Terbang WASD)",
+            CurrentValue = false,
+            Callback = function(v)
+                flying = v
+                if v then startFly() else stopFly() end
+                Window:Notify({ Title = "Fly", Content = v and "Fly Mode Aktif (WASD + Space/Shift)" or "Fly Mode Nonaktif", Duration = 2 })
+            end
+        })
+
+        PlayerTab:CreateSlider({
+            Name = "Fly Speed",
+            Range = {10, 250},
+            Increment = 5,
+            Suffix = " spd",
+            CurrentValue = 50,
+            Callback = function(v) flySpeed = v end
+        })
+
+        -- NoClip
+        local noclip = false
+        local noclipConn = nil
+        PlayerTab:CreateToggle({
+            Name = "NoClip (Tembus Dinding)",
+            CurrentValue = false,
+            Callback = function(v)
+                noclip = v
+                if v and not noclipConn then
+                    noclipConn = RunService.Stepped:Connect(function()
+                        if not noclip then return end
+                        local char = getChar()
+                        if char then
+                            for _, p in ipairs(char:GetDescendants()) do
+                                if p:IsA("BasePart") and p.CanCollide then
+                                    p.CanCollide = false
+                                end
+                            end
+                        end
+                    end)
+                elseif not v and noclipConn then
+                    noclipConn:Disconnect()
+                    noclipConn = nil
+                end
+                Window:Notify({ Title = "NoClip", Content = v and "NoClip Aktif!" or "NoClip Nonaktif", Duration = 2 })
+            end
+        })
+
+        -- SpinBot
+        local spinbot = false
+        local spinSpeed = 30
+        local spinConn = nil
+        PlayerTab:CreateToggle({
+            Name = "SpinBot (Putar Cepat)",
+            CurrentValue = false,
+            Callback = function(v)
+                spinbot = v
+                if v and not spinConn then
+                    spinConn = RunService.RenderStepped:Connect(function()
+                        if not spinbot then return end
+                        local root = getRoot()
+                        if root then
+                            root.CFrame = root.CFrame * CFrame.Angles(0, math.rad(spinSpeed), 0)
+                        end
+                    end)
+                elseif not v and spinConn then
+                    spinConn:Disconnect(); spinConn = nil
+                end
+            end
+        })
+
+        PlayerTab:CreateSlider({
+            Name = "SpinBot Speed",
+            Range = {5, 100},
+            Increment = 5,
+            Suffix = " rpm",
+            CurrentValue = 30,
+            Callback = function(v) spinSpeed = v end
+        })
+
+        PlayerTab:CreateSection("Visual & Kamera")
+
+        -- Fullbright
+        local fullbright = false
+        local Lighting = game:GetService("Lighting")
+        local oldAmbient = Lighting.Ambient
+        local oldBrightness = Lighting.Brightness
+        local oldClock = Lighting.ClockTime
+        PlayerTab:CreateToggle({
+            Name = "Fullbright (Terang Benderang / Anti Gelap)",
+            CurrentValue = false,
+            Callback = function(v)
+                fullbright = v
+                if v then
+                    Lighting.Ambient = Color3.fromRGB(255, 255, 255)
+                    Lighting.Brightness = 2
+                    Lighting.ClockTime = 14
+                else
+                    Lighting.Ambient = oldAmbient
+                    Lighting.Brightness = oldBrightness
+                    Lighting.ClockTime = oldClock
+                end
+                Window:Notify({ Title = "Visual", Content = v and "Fullbright Aktif!" or "Fullbright Nonaktif", Duration = 2 })
+            end
+        })
+
+        -- FOV Slider
+        PlayerTab:CreateSlider({
+            Name = "Field of View (FOV)",
+            Range = {70, 120},
+            Increment = 1,
+            Suffix = "°",
+            CurrentValue = 70,
+            Callback = function(v)
+                workspace.CurrentCamera.FieldOfView = v
+            end
+        })
+
+        PlayerTab:CreateSection("Utilitas Player")
+
+        -- Anti-AFK
+        local antiAfk = false
+        local afkConn = nil
+        PlayerTab:CreateToggle({
+            Name = "Anti-AFK (Cegah Disconnect 20 Menit)",
+            CurrentValue = true,
+            Callback = function(v)
+                antiAfk = v
+                if v and not afkConn then
+                    local vu = game:GetService("VirtualUser")
+                    afkConn = LocalPlayer.Idled:Connect(function()
+                        if antiAfk then
+                            vu:CaptureController()
+                            vu:ClickButton2(Vector2.zero)
+                        end
+                    end)
+                elseif not v and afkConn then
+                    afkConn:Disconnect(); afkConn = nil
+                end
+            end
+        })
+
         PlayerTab:CreateButton({
-            Name = "Reset Karakter",
+            Name = "Salin Koordinat Posisi Saat Ini",
+            Callback = function()
+                local r = getRoot()
+                if r then
+                    local posStr = string.format("%.1f, %.1f, %.1f", r.Position.X, r.Position.Y, r.Position.Z)
+                    if setclipboard then setclipboard(posStr) end
+                    Window:Notify({ Title = "Posisi", Content = "Koordinat disalin: " .. posStr, Duration = 3 })
+                end
+            end
+        })
+
+        PlayerTab:CreateButton({
+            Name = "Reset Karakter / Respawn",
             Callback = function() local h = getHum(); if h then h.Health = 0 end end
         })
 
-        -- 5. TAB SETTINGS & CONFIGS
+        -- 6. TAB SETTINGS (KEYBINDS & SHORTCUTS)
         local SettingsTab = Window:CreateTab("Settings", "settings", "Config")
-        SettingsTab:CreateSection("Pengaturan Client")
+
+        SettingsTab:CreateSection("Keybinds & Shortcut Menu")
+        SettingsTab:CreateKeybind({
+            Name = "Tombol Buka / Tutup UI",
+            CurrentKey = Window.ToggleKey or Enum.KeyCode.RightShift,
+            Callback = function(newKey)
+                Window.ToggleKey = newKey
+                Window:Notify({ Title = "Keybind Disimpan", Content = "Tombol menu diubah ke: [" .. newKey.Name .. "]", Duration = 3 })
+            end
+        })
+
+        SettingsTab:CreateParagraph({
+            Title = "Daftar Shortcut & Panduan Penggunaan",
+            Content = "• Buka/Tutup UI: Tekan tombol yang telah diatur di atas (Default: RightShift).\n" ..
+                      "• Pop-up Kotak Mini: Muncul di kiri saat tombol strip [ — ] ditekan.\n" ..
+                      "• Geser Window: Drag header atas UI menggunakan mouse.\n" ..
+                      "• Resize Window: Tarik grip pojok kanan bawah seperti aplikasi Windows.\n" ..
+                      "• Ganti Tema: Klik ikon matahari di kanan atas untuk White/Dark mode."
+        })
+
+        SettingsTab:CreateSection("Optimasi Client")
         SettingsTab:CreateToggle({
             Name = "Reduce Graphics Lag (FPS Boost)",
             CurrentValue = false,
-            Callback = function(v) if v then pcall(function() settings().Rendering.QualityLevel = 1 end) end end
+            Callback = function(v)
+                if v then
+                    pcall(function()
+                        settings().Rendering.QualityLevel = 1
+                    end)
+                end
+                Window:Notify({ Title = "Graphics", Content = v and "FPS Boost diaktifkan!" or "FPS Boost dinonaktifkan.", Duration = 2 })
+            end
         })
 
+        -- 7. TAB CONFIGS & WEBHOOK
         local ConfigsTab = Window:CreateTab("Configs", "folder", "Config")
-        ConfigsTab:CreateSection("Profil Konfigurasi")
+        ConfigsTab:CreateSection("Discord Webhook Integration")
+
+        local webhookUrl = ""
+        local sendOnExec = true
+        local sendOnWin = true
+
+        ConfigsTab:CreateInput({
+            Name = "Discord Webhook URL",
+            PlaceholderText = "https://discord.com/api/webhooks/...",
+            Callback = function(val)
+                webhookUrl = string.gsub(val or "", "^%s*(.-)%s*$", "%1")
+                Window:Notify({ Title = "Webhook", Content = "URL Webhook disimpan.", Duration = 2 })
+            end
+        })
+
+        ConfigsTab:CreateToggle({
+            Name = "Kirim Log saat Script Dieksekusi",
+            CurrentValue = true,
+            Callback = function(v) sendOnExec = v end
+        })
+
+        ConfigsTab:CreateToggle({
+            Name = "Kirim Log saat Auto Win Berhasil",
+            CurrentValue = true,
+            Callback = function(v) sendOnWin = v end
+        })
+
+        local function sendDiscordWebhook(embedData)
+            if webhookUrl == "" or not string.find(webhookUrl, "discord%.com/api/webhooks") then
+                Window:Notify({ Title = "Webhook Error", Content = "URL Webhook tidak valid! Masukkan URL Discord yang benar.", Duration = 3 })
+                return false
+            end
+            local http = syn and syn.request or http_request or request or (http and http.request)
+            if not http then
+                Window:Notify({ Title = "Webhook Error", Content = "Executor kamu tidak mendukung HTTP request.", Duration = 3 })
+                return false
+            end
+            local payload = HttpService:JSONEncode({
+                username = "Unionsal Hub Logger",
+                avatar_url = "https://i.imgur.com/8Q9Z5bX.png",
+                embeds = { embedData }
+            })
+            local ok, err = pcall(function()
+                http({
+                    Url = webhookUrl,
+                    Method = "POST",
+                    Headers = { ["Content-Type"] = "application/json" },
+                    Body = payload
+                })
+            end)
+            return ok
+        end
+
         ConfigsTab:CreateButton({
-            Name = "Simpan Konfigurasi",
-            Callback = function() Window:Notify({ Title = "Config", Content = "Konfigurasi berhasil disimpan.", Duration = 2 }) end
+            Name = "Kirim Pesan Uji Coba (Test Webhook)",
+            Callback = function()
+                local embed = {
+                    title = "⚡ Unionsal Hub v1.3 • Webhook Connected",
+                    description = "Webhook berhasil terhubung dengan client Roblox!",
+                    color = 8864235,
+                    fields = {
+                        { name = "Player", value = LocalPlayer.Name .. " (@" .. LocalPlayer.DisplayName .. ")", inline = true },
+                        { name = "Game", value = gameTitle or "Blush Canyon", inline = true },
+                        { name = "Place ID", value = tostring(game.PlaceId), inline = true },
+                        { name = "Waktu", value = os.date("%H:%M:%S - %d/%m/%Y"), inline = false }
+                    },
+                    footer = { text = "Unionsal Script Hub • .gg/unionsal" }
+                }
+                local success = sendDiscordWebhook(embed)
+                if success then
+                    Window:Notify({ Title = "Webhook Sukses", Content = "Pesan uji coba berhasil terkirim ke Discord!", Duration = 3 })
+                end
+            end
+        })
+
+        ConfigsTab:CreateSection("Penyimpanan Profil Konfigurasi")
+        ConfigsTab:CreateButton({
+            Name = "Simpan Konfigurasi (Save Config)",
+            Callback = function()
+                pcall(function()
+                    if writefile then
+                        local cfgData = {
+                            WebhookUrl = webhookUrl,
+                            SendOnExec = sendOnExec,
+                            SendOnWin = sendOnWin,
+                            ToggleKey = Window.ToggleKey and Window.ToggleKey.Name or "RightShift"
+                        }
+                        writefile("unionsal_config.json", HttpService:JSONEncode(cfgData))
+                    end
+                end)
+                Window:Notify({ Title = "Config", Content = "Konfigurasi berhasil disimpan ke file.", Duration = 2 })
+            end
+        })
+
+        ConfigsTab:CreateButton({
+            Name = "Muat Konfigurasi (Load Config)",
+            Callback = function()
+                local loaded = false
+                pcall(function()
+                    if readfile and isfile and isfile("unionsal_config.json") then
+                        local data = HttpService:JSONDecode(readfile("unionsal_config.json"))
+                        if data.WebhookUrl then webhookUrl = data.WebhookUrl end
+                        if data.ToggleKey and Enum.KeyCode[data.ToggleKey] then
+                            Window.ToggleKey = Enum.KeyCode[data.ToggleKey]
+                        end
+                        loaded = true
+                    end
+                end)
+                Window:Notify({
+                    Title = "Config",
+                    Content = loaded and "Konfigurasi berhasil dimuat." or "File konfigurasi belum ada.",
+                    Duration = 2
+                })
+            end
         })
     end
 
@@ -3065,7 +3550,7 @@ local function entryLoader()
     if not gameInfo then return end
 
     showIntroScreen(gameInfo, function()
-        getgenv()._NEMESIS_CHILD_LOADED = true
+        getgenv()._UNIONSAL_CHILD_LOADED = true
         local loaded = false
 
         -- 1. Coba load dari file lokal jika ada di folder executor
@@ -3094,16 +3579,16 @@ local function entryLoader()
         -- 3. JIKA BELUM LOADED (offline / GitHub belum dipush / dieksekusi mandiri):
         -- Buka langsung modul built-in agar script 100% selalu berhasil jalan tanpa error!
         if not loaded then
-            NemesisHub:LoadModule(gameInfo.script, gameInfo.name)
+            UnionsalHub:LoadModule(gameInfo.script, gameInfo.name)
         end
     end)
 end
 
 -- Jalankan loader otomatis jika belum ada game script yang memanggil NemesisHub
 task.spawn(function()
-    if not getgenv()._NEMESIS_CHILD_LOADED then
+    if not getgenv()._UNIONSAL_CHILD_LOADED then
         entryLoader()
     end
 end)
 
-return NemesisHub
+return UnionsalHub
