@@ -6514,26 +6514,52 @@ local function entryLoader()
         -- 2. Coba load dari file lokal jika ada di folder executor
         if not loaded then
             pcall(function()
-                if readfile then
-                    local content = readfile(gameInfo.script .. ".lua")
+                local filename = gameInfo.script .. ".lua"
+                local fileExists = false
+                if isfile then
+                    pcall(function() fileExists = isfile(filename) end)
+                else
+                    fileExists = true
+                end
+                if fileExists and readfile then
+                    local content = readfile(filename)
                     if content and #content > 100 and not string.find(content, "sirius%.menu") then
-                        loadstring(content)()
-                        loaded = true
+                        local fn, parseErr = loadstring(content)
+                        if fn then
+                            fn()
+                            loaded = true
+                        else
+                            warn("[Unionsal Hub] Local file parse error (" .. filename .. "): " .. tostring(parseErr))
+                        end
                     end
                 end
             end)
         end
 
-        -- 3. Fallback GitHub jika file belum ada
+        -- 3. Fallback GitHub jika file belum ada (dengan cache-buster ?v=tick agar selalu update!)
         if not loaded then
-            pcall(function()
-                local scriptUrl = SCRIPT_BASE_URL .. gameInfo.script .. ".lua"
+            local okNet, errNet = pcall(function()
+                local scriptUrl = SCRIPT_BASE_URL .. gameInfo.script .. ".lua?v=" .. tostring(tick())
                 local content = game:HttpGet(scriptUrl)
                 if content and #content > 100 and not string.find(content, "sirius%.menu") then
-                    loadstring(content)()
-                    loaded = true
+                    local fn, parseErr = loadstring(content)
+                    if fn then
+                        local okRun, runErr = pcall(fn)
+                        if okRun then
+                            loaded = true
+                        else
+                            warn("[Unionsal Hub] Runtime error saat menjalankan " .. gameInfo.script .. ": " .. tostring(runErr))
+                        end
+                    else
+                        warn("[Unionsal Hub] Parse/Syntax error pada " .. gameInfo.script .. ": " .. tostring(parseErr))
+                    end
+                else
+                    warn("[Unionsal Hub] Konten kosong atau tidak valid dari: " .. tostring(scriptUrl))
                 end
             end)
+            if not okNet then
+                warn("[Unionsal Hub] Gagal mengunduh script dari GitHub: " .. tostring(errNet))
+            end
         end
     end)
 end
