@@ -22,7 +22,7 @@ if not Unionsal or type(Unionsal.CreateWindow) ~= "function" then
         Unionsal = resLocal
     else
         local okWeb, resWeb = pcall(function()
-            return loadstring(game:HttpGet(SCRIPT_BASE_URL .. "main.lua"))()
+            return loadstring(game:HttpGet(SCRIPT_BASE_URL .. "main.lua?v=" .. tostring(tick())))()
         end)
         if okWeb and resWeb and type(resWeb.CreateWindow) == "function" then
             Unionsal = resWeb
@@ -103,6 +103,13 @@ local function partOf(obj)
         return (p and p:IsA("BasePart")) and p or nil
     end
     if obj:IsA("Model") then
+        local anchor = obj:FindFirstChild("SignAnchor", true)
+            or obj:FindFirstChild("PenglaiSignAnchor", true)
+            or obj:FindFirstChild("Plate", true)
+            or obj:FindFirstChild("Sign", true)
+            or obj:FindFirstChild("Pad", true)
+            or obj:FindFirstChild("Circle", true)
+        if anchor and anchor:IsA("BasePart") then return anchor end
         if obj.PrimaryPart then return obj.PrimaryPart end
         local hrp = obj:FindFirstChild("HumanoidRootPart")
         if hrp and hrp:IsA("BasePart") then return hrp end
@@ -1123,64 +1130,64 @@ end
 local CULTIVATION_SPOTS_HARDCODED = {
     {
         Name       = "Stone of First Breath",
-        Path       = {"Map","Village","FirstBreathStone"},
+        Path       = {"Map","Village","FirstBreathStone","SignAnchor"},
         Center     = Vector3.new(-1.8, 6.3, 304.0),
         Multiplier = 1.5,
         RealmIndex = 1,   -- Body Tempering
     },
     {
         Name       = "Outer Court Bagua Circle",
-        Path       = {"Map","Formations","plaza"},
+        Path       = {"Map","Formations","plaza","SignAnchor"},
         Center     = Vector3.new(0.0, 67.2, 30.0),
         Multiplier = 3,
         RealmIndex = 2,   -- Qi Gathering
     },
     {
         Name       = "Contemplation Cliff",
-        Path       = {"Map","Formations","cliff"},
+        Path       = {"Map","Formations","cliff","SignAnchor"},
         Center     = Vector3.new(-196.0, 66.0, -24.0),
         Multiplier = 5,
         RealmIndex = 2,   -- Qi Gathering (Layer 3+)
     },
     {
         Name       = "Jade Formation",
-        Path       = {"Map","Islands","JadePeak"},
-        Center     = Vector3.new(482.0, 126.3, -120.4),
+        Path       = {"Map","Islands","JadePeak","SignAnchor"},
+        Center     = Vector3.new(482.0, 145.0, -120.4),
         Multiplier = 10,
         RealmIndex = 3,   -- Foundation Establishment
     },
     {
         Name       = "Golden Formation",
-        Path       = {"Map","Islands","GoldTerrace"},
-        Center     = Vector3.new(697.6, 291.3, -448.8),
+        Path       = {"Map","Islands","GoldTerrace","SignAnchor"},
+        Center     = Vector3.new(697.6, 310.0, -448.8),
         Multiplier = 22,
         RealmIndex = 4,   -- Golden Core
     },
     {
         Name       = "Cloud Formation",
-        Path       = {"Map","HeavenCity","Plaza"},
-        Center     = Vector3.new(520.0, 509.9, -780.0),
+        Path       = {"Map","HeavenCity","Plaza","SignAnchor"},
+        Center     = Vector3.new(520.0, 520.0, -780.0),
         Multiplier = 50,
         RealmIndex = 6,   -- Heavenly Being (5=Nascent can also use Golden/Cloud)
     },
     {
         Name       = "Heaven's Threshold",
-        Path       = {"Map","HeavenCity","GreatHeavenSummit"},
-        Center     = Vector3.new(449.1, 535.7, -902.9),
+        Path       = {"Map","HeavenCity","GreatHeavenSummit","SignAnchor"},
+        Center     = Vector3.new(449.1, 545.0, -902.9),
         Multiplier = 110,
         RealmIndex = 7,   -- Great Heavenly Being
     },
     {
         Name       = "Lord's Peak",
-        Path       = {"Map","HeavenCity","LordPeak"},
-        Center     = Vector3.new(532.1, 597.4, -939.1),
+        Path       = {"Map","HeavenCity","LordPeak","SignAnchor"},
+        Center     = Vector3.new(532.1, 605.0, -939.1),
         Multiplier = 250,
         RealmIndex = 8,   -- Heavenly Lord
     },
     {
         Name       = "Penglai, Isle of Immortals",
-        Path       = {"Map","ImmortalIsle"},
-        Center     = Vector3.new(-215.3, 502.7, -709.7),
+        Path       = {"Map","ImmortalIsle","PenglaiRock","SignAnchor"},
+        Center     = Vector3.new(-215.3, 510.0, -709.7),
         Multiplier = 550,
         RealmIndex = 9,   -- Immortal
     },
@@ -1191,13 +1198,60 @@ local function getLivePosForSpot(spot)
     local ok, pos = pcall(function()
         local cur = workspace
         for _, p in ipairs(spot.Path) do
-            cur = cur:FindFirstChild(p)
-            if not cur then return nil end
+            if cur then
+                cur = cur:FindFirstChild(p)
+            end
         end
-        if cur:IsA("BasePart") then return cur.Position end
-        if cur:IsA("Model") then return cur:GetPivot().Position end
-        local part = cur:FindFirstChildWhichIsA("BasePart", true)
-        return part and part.Position or nil
+
+        -- 1. Jika path langsung menemukan BasePart (SignAnchor)
+        if cur and cur:IsA("BasePart") then
+            return cur.Position
+        end
+
+        -- 2. Jika path berhenti di Model / Folder, cari SignAnchor
+        local targetObj = cur
+        if not targetObj then
+            local parent = workspace
+            for i = 1, #spot.Path - 1 do
+                parent = parent:FindFirstChild(spot.Path[i])
+                if not parent then break end
+            end
+            targetObj = parent
+        end
+
+        if targetObj then
+            -- Cari anchor Billboard / Plate formasi
+            local anchor = targetObj:FindFirstChild("SignAnchor", true)
+                or targetObj:FindFirstChild("PenglaiSignAnchor", true)
+                or targetObj:FindFirstChild("Plate", true)
+                or targetObj:FindFirstChild("Sign", true)
+                or targetObj:FindFirstChild("Circle", true)
+                or targetObj:FindFirstChild("Pad", true)
+            if anchor and anchor:IsA("BasePart") then
+                return anchor.Position
+            end
+
+            -- Cari BasePart dengan posisi Y tertinggi di pulau (permukaan atas lantai/formation)
+            local highestPart = nil
+            local highestY = -math.huge
+            for _, desc in ipairs(targetObj:GetDescendants()) do
+                if desc:IsA("BasePart") and desc.Transparency < 1 and desc.Size.Magnitude > 1.5 then
+                    if desc.Position.Y > highestY then
+                        highestY = desc.Position.Y
+                        highestPart = desc
+                    end
+                end
+            end
+            if highestPart then
+                return highestPart.Position
+            end
+
+            if targetObj:IsA("Model") then
+                return targetObj:GetPivot().Position
+            end
+        end
+
+        return nil
     end)
     return (ok and pos) and pos or spot.Center
 end
@@ -1212,8 +1266,8 @@ local function scanBaguaCircles()
             if (sp - rawPos).Magnitude < 12 then return end
         end
         table.insert(seenPos, rawPos)
-        -- Berdiri 5 studs di depan spot agar tidak stuck di dalam objek
-        local standPos = rawPos + Vector3.new(0, 1, 5.5)
+        -- Berdiri presisi di atas spot (2.0 studs di atas SignAnchor agar pas di formation circle)
+        local standPos = rawPos + Vector3.new(0, 2.0, 0)
         table.insert(BaguaSpots, {
             Name       = name,
             CenterPos  = rawPos,
@@ -1450,7 +1504,7 @@ local Travel = {
     Cancelled = false,
 }
 
--- Raycast dimulai hanya 10 studs di atas titik target agar tidak menabrak atap / awan!
+-- Raycast mendeteksi lantai atas formasi / pulau agar selalu mendarat di atas permukaan pad
 local function safeGroundY(pos)
     local params = RaycastParams.new()
     params.FilterType = Enum.RaycastFilterType.Exclude
@@ -1459,8 +1513,11 @@ local function safeGroundY(pos)
         if p.Character then table.insert(excl, p.Character) end
     end
     params.FilterDescendantsInstances = excl
+    params.RespectCanCollide = true -- WAJIB: Hanya tabrak tanah/lantai fisik yang bisa diinjak!
 
-    local result = workspace:Raycast(pos + Vector3.new(0, 12, 0), Vector3.new(0, -60, 0), params)
+    -- Raycast dari 35 studs di atas pos, turun ke bawah sejauh 70 studs
+    -- Menjamin selalu menangkap lantai atas pulau, bukan rongga bawah/dalam mesh
+    local result = workspace:Raycast(pos + Vector3.new(0, 35, 0), Vector3.new(0, -70, 0), params)
     if result then
         return result.Position.Y
     end
@@ -1468,6 +1525,14 @@ local function safeGroundY(pos)
 end
 
 local function clearLeftoverMovers()
+    local char = getCharacter()
+    if char then
+        for _, p in ipairs(char:GetDescendants()) do
+            if p:IsA("BasePart") and (p.Name == "HumanoidRootPart" or string.find(p.Name, "Torso") or string.find(p.Name, "Leg")) then
+                pcall(function() p.CanCollide = true end)
+            end
+        end
+    end
     local root = getRootPart()
     if root then
         for _, child in ipairs(root:GetChildren()) do
@@ -1542,15 +1607,33 @@ local function glideTo(targetPos, arriveDist)
     end
 
     local speed = clamp(State.FlySpeed or 150, 45, 450)
-    local cruiseY = math.max(startPos.Y, finalPos.Y) + (State.NaturalHeight or 24)
+    -- Cruise altitude minimal 45 studs di atas titik tertinggi (start atau target)
+    -- Menjamin selalu terbang bebas di langit terbuka tanpa menabrak tebing pulau
+    local cruiseY = math.max(startPos.Y, finalPos.Y) + math.max(State.NaturalHeight or 35, 45)
     local waypoints = {
         Vector3.new(startPos.X, cruiseY, startPos.Z),
         Vector3.new(finalPos.X, cruiseY, finalPos.Z),
         finalPos,
     }
-    if totalDist < 35 then
+    -- Hanya bypass waypoint jika jarak sangat dekat DAN ketinggian hampir sama (tidak menembus tebing/lantai)
+    if totalDist < 15 and math.abs(startPos.Y - finalPos.Y) < 6 then
         waypoints = { finalPos }
     end
+
+    -- Noclip aktif selama fase terbang agar tidak tersangkut geometri pulau / mesh dalam
+    local noclipConn
+    pcall(function()
+        noclipConn = RunService.Stepped:Connect(function()
+            local ch = getCharacter()
+            if ch then
+                for _, p in ipairs(ch:GetDescendants()) do
+                    if p:IsA("BasePart") and p.CanCollide then
+                        p.CanCollide = false
+                    end
+                end
+            end
+        end)
+    end)
 
     local okMove, errMove = pcall(function()
         hum.PlatformStand = true
@@ -1586,6 +1669,10 @@ local function glideTo(targetPos, arriveDist)
             end
         end
     end)
+
+    if noclipConn then
+        pcall(function() noclipConn:Disconnect() end)
+    end
 
     if not okMove then
         log("Glide warning: " .. tostring(errMove))
