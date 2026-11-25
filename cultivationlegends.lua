@@ -572,7 +572,74 @@ local function clickVisibleGui(keywords, container, excludeWords)
     return false, nil, nil
 end
 
-local function usePrompt(prompt)
+-- ═══════════════════════════════════════════
+--  GAME-SPECIFIC: Klik "Hit" button berdasarkan nama PARENT
+--  Semua tombol di game ini: TextButton[Hit] Text='' Parent=NamaFrame
+-- ═══════════════════════════════════════════
+-- Ambil nama parent dari button untuk identifikasi
+local function getHitButtonLabel(btn)
+    local parentName = (btn.Parent and btn.Parent.Name) or ""
+    -- Ambil juga teks dari sibling TextLabel di parent yang sama
+    local siblText = ""
+    if btn.Parent then
+        for _, sib in ipairs(btn.Parent:GetDescendants()) do
+            if sib:IsA("TextLabel") and sib.Text and sib.Text ~= "" then
+                siblText = siblText .. " " .. sib.Text
+            end
+        end
+    end
+    return parentName .. " " .. siblText
+end
+
+-- Cari Hit button berdasarkan Parent.Name, mendukung pola "Hit" button kosong
+local function findHitButton(parentKeywords, excludeKeywords, scopeGui)
+    local scope = scopeGui or getPlayerGui()
+    if not scope then return nil end
+    local excl = excludeKeywords or {}
+
+    for _, obj in ipairs(scope:GetDescendants()) do
+        if (obj:IsA("TextButton") or obj:IsA("ImageButton"))
+            and obj.Visible
+            and obj.AbsoluteSize.X >= 8
+            and not (OurGui and obj:IsDescendantOf(OurGui)) then
+
+            -- Bangun label: nama obj sendiri + nama parent + nama grandparent
+            local ownName    = string.lower(obj.Name or "")
+            local parentName = string.lower(obj.Parent and obj.Parent.Name or "")
+            local gpName     = string.lower(obj.Parent and obj.Parent.Parent and obj.Parent.Parent.Name or "")
+            local combined   = ownName .. "|" .. parentName .. "|" .. gpName
+
+            -- Cek exclude dulu
+            local excluded = false
+            for _, ex in ipairs(excl) do
+                if string.find(combined, string.lower(ex), 1, true) then
+                    excluded = true
+                    break
+                end
+            end
+            if not excluded then
+                for _, kw in ipairs(parentKeywords) do
+                    if string.find(combined, string.lower(kw), 1, true) then
+                        return obj
+                    end
+                end
+            end
+        end
+    end
+    return nil
+end
+
+-- Klik Hit button berdasarkan parent name, return true jika berhasil
+local function clickHitButton(parentKeywords, excludeKeywords, scopeGui)
+    local btn = findHitButton(parentKeywords, excludeKeywords, scopeGui)
+    if btn then
+        triggerButton(btn)
+        return true
+    end
+    return false
+end
+
+
     if not prompt or not prompt.Parent then return false end
     local ok = false
     if type(fireproximityprompt) == "function" then
@@ -848,20 +915,63 @@ local function scanHudBreakthroughQi()
     return best
 end
 
-local function refreshPlayerState()
-    -- 1. Cek Client.UI.State terlebih dahulu
-    local stRealm = readStateModuleField({ "Realm", "realm", "RealmName", "RealmIndex", "Stage", "CultivationRealm" })
-    local realmVal = stRealm or attrOf({ "Realm", "RealmName", "CultivationRealm", "Rank", "Stage", "RealmIndex" })
+-- Peta realm name → index (berdasarkan head label scan real dari Workspace)
+local REALM_TO_IDX = {
+    ["body tempering"]           = 1, ["bodytemper"] = 1,
+    ["qi gathering"]             = 2, ["qigathering"] = 2,
+    ["foundation establishment"] = 3, ["foundationestablishment"] = 3, ["foundation"] = 3,
+    ["golden core"]              = 4, ["goldencore"] = 4,
+    ["nascent soul"]             = 5, ["nascentsoul"] = 5,
+    ["heavenly being"]           = 6, ["heavenlybeing"] = 6,
+    ["great heavenly being"]     = 7, ["greatheavenly"] = 7, ["great heavenly"] = 7,
+    ["heavenly lord"]            = 8, ["heavenlylord"] = 8,
+    ["immortal"]                 = 9,
+}
 
-    if type(realmVal) == "string" and realmVal ~= "" then
-        State.Realm = realmVal
-        local idx = RealmByName[normalizeStr(realmVal)]
-        if idx then State.RealmIndex = idx end
-    elseif type(realmVal) == "number" then
-        State.RealmIndex = clamp(math.floor(realmVal), 1, math.max(#RealmList, 1))
-        State.Realm = RealmList[State.RealmIndex] and RealmList[State.RealmIndex].Name or ("Realm " .. State.RealmIndex)
-    elseif #RealmList > 0 then
-        State.Realm = RealmList[State.RealmIndex] and RealmList[State.RealmIndex].Name or State.Realm
+-- Baca realm dari head label karakter LOCAL (paling akurat, langsung dari game)
+local function readRealmFromHead()
+    local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait(3)
+    if not char then return nil, nil end
+    local head = char:FindFirstChild("Head")
+    if not head then return nil, nil end
+    for _, gui in ipairs(head:GetDescendants()) do
+        if (gui:IsA("TextLabel") or gui:IsA("TextButton")) and gui.Text ~= "" then
+            local raw = gui.Text
+            local low = string.lower(raw)
+            -- Format: "Qi Gathering · 3" atau "Golden Core · 2"
+            for name, idx in pairs(REALM_TO_IDX) do
+                if string.find(low, name, 1, true) then
+                    return name, idx
+                end
+            end
+        end
+    end
+    return nil, nil
+end
+
+local function refreshPlayerState()
+    -- 1. Prioritas: baca langsung dari head label karakter (terbukti ada: "Qi Gathering · 3")
+    local headName, headIdx = readRealmFromHead()
+    if headName and headIdx then
+        State.Realm = headName
+        State.RealmIndex = headIdx
+    else
+        -- 2. Fallback: Cek Client.UI.State
+        local stRealm = readStateModuleField({ "Realm", "realm", "RealmName", "RealmIndex", "Stage", "CultivationRealm" })
+        local realmVal = stRealm or attrOf({ "Realm", "RealmName", "CultivationRealm", "Rank", "Stage", "RealmIndex" })
+        if type(realmVal) == "string" and realmVal ~= "" then
+            State.Realm = realmVal
+            local low = string.lower(realmVal)
+            for name, idx in pairs(REALM_TO_IDX) do
+                if string.find(low, name, 1, true) then
+                    State.RealmIndex = idx
+                    break
+                end
+            end
+        elseif type(realmVal) == "number" then
+            State.RealmIndex = clamp(math.floor(realmVal), 1, 9)
+            State.Realm = RealmList[State.RealmIndex] and RealmList[State.RealmIndex].Name or ("Realm " .. State.RealmIndex)
+        end
     end
 
     -- 2. Baca persentase Qi / Breakthrough
@@ -1011,9 +1121,6 @@ end
 --               → Great Heavenly Being(7) → Heavenly Lord(8) → Immortal(9)
 -- ═══════════════════════════════════════════
 local CULTIVATION_SPOTS_HARDCODED = {
-    -- { name, workspacePath, center, standOffset, multiplier, realmIndex }
-    -- realmIndex: 1=BodyTemp, 2=QiGath, 3=FoundEst, 4=GoldCore,
-    --              5=NascentSoul, 6=HeavenlyBeing, 7=GreatHeavenly, 8=HeavenlyLord, 9=Immortal
     {
         Name       = "Stone of First Breath",
         Path       = {"Map","Village","FirstBreathStone"},
@@ -1054,7 +1161,7 @@ local CULTIVATION_SPOTS_HARDCODED = {
         Path       = {"Map","HeavenCity","Plaza"},
         Center     = Vector3.new(520.0, 509.9, -780.0),
         Multiplier = 50,
-        RealmIndex = 6,   -- Heavenly Being (skip 5=Nascent if no spot)
+        RealmIndex = 6,   -- Heavenly Being (5=Nascent can also use Golden/Cloud)
     },
     {
         Name       = "Heaven's Threshold",
@@ -1117,7 +1224,7 @@ local function scanBaguaCircles()
         })
     end
 
-    -- 1. HARDCODED DATA REAL dari scan in-game (paling reliable!)
+    -- 1. HARDCODED DATA REAL dari scan in-game (koordinat dan realm 100% akurat)
     for _, spot in ipairs(CULTIVATION_SPOTS_HARDCODED) do
         local livePos = getLivePosForSpot(spot)
         addCircle(
@@ -1129,45 +1236,7 @@ local function scanBaguaCircles()
         )
     end
 
-    -- 2. Scan tambahan dari BillboardGui / SurfaceGui (kalau ada spot baru/event)
-    local containers = { workspace }
-    local pg = getPlayerGui()
-    if pg then table.insert(containers, pg) end
-
-    for _, rootContainer in ipairs(containers) do
-        for _, gui in ipairs(rootContainer:GetDescendants()) do
-            if gui:IsA("BillboardGui") or gui:IsA("SurfaceGui") then
-                local host = gui.Adornee or gui.Parent
-                if host and not isPlayerCharacterDescendant(host) and not (OurGui and gui:IsDescendantOf(OurGui)) then
-                    local texts = {}
-                    for _, lbl in ipairs(gui:GetDescendants()) do
-                        if lbl:IsA("TextLabel") and lbl.Text ~= "" then
-                            table.insert(texts, lbl.Text)
-                        end
-                    end
-                    local joined = table.concat(texts, " | ")
-                    local low = string.lower(joined)
-                    if string.find(low, "bagua", 1, true)
-                        or string.find(low, "qi gathering", 1, true)
-                        or string.find(low, "formation", 1, true)
-                        or string.find(low, "outer court", 1, true)
-                        or string.find(low, "contemplation", 1, true)
-                        or string.find(low, "penglai", 1, true) then
-                        local p = posOf(host)
-                        if p then
-                            local title = texts[1] or host.Name
-                            local mult = tonumber(string.match(low, "×(%d+)%s*qi"))
-                                or tonumber(string.match(low, "x(%d+)%s*qi"))
-                                or 3
-                            addCircle(title, p, mult, 1, false)
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    -- 3. Spot dari Shared.World / Shared.Lotus (jika berhasil ter-require)
+    -- 2. Spot dari Shared.World / Shared.Lotus (jika berhasil ter-require)
     for _, ws in ipairs(WorldSpots) do
         local low = string.lower(ws.Name)
         if string.find(low, "bagua", 1, true) or string.find(low, "formation", 1, true)
@@ -1176,7 +1245,7 @@ local function scanBaguaCircles()
         end
     end
 
-    -- Urutkan: multiplier terbesar dulu (spot terkuat duluan)
+    -- Urutkan: Multiplier terbesar dulu
     table.sort(BaguaSpots, function(a, b)
         if a.Multiplier == b.Multiplier then
             return a.RealmReq < b.RealmReq
@@ -1330,39 +1399,47 @@ local function getRealmIndex()
     return State.RealmIndex or 1
 end
 
+local REALM_INDEX_TO_SPOT_NAME = {
+    [1] = "Stone of First Breath",
+    [2] = "Outer Court Bagua Circle",
+    [3] = "Jade Formation",
+    [4] = "Golden Formation",
+    [5] = "Golden Formation",
+    [6] = "Cloud Formation",
+    [7] = "Heaven's Threshold",
+    [8] = "Lord's Peak",
+    [9] = "Penglai, Isle of Immortals",
+}
+
 local function getBestCultivationSpot()
     scanBaguaCircles()
     local realmIdx = getRealmIndex()
+    local targetName = REALM_INDEX_TO_SPOT_NAME[realmIdx] or "Outer Court Bagua Circle"
 
-    if #BaguaSpots > 0 then
-        -- Cari spot terkuat yang masih sesuai realm (RealmReq <= realmIdx)
-        local bestSpot = nil
-        for _, spot in ipairs(BaguaSpots) do
-            -- BaguaSpots sudah diurutkan Multiplier terbesar dulu
-            -- Ambil yang realmnya <= realm kita (bisa masuk ke sana)
-            if not spot.Locked and (spot.RealmReq or 1) <= realmIdx then
-                bestSpot = spot
-                break
-            end
-        end
-        if bestSpot then
-            return bestSpot.Position, bestSpot.Name .. " (×" .. tostring(bestSpot.Multiplier) .. " Qi)"
-        end
-        -- Fallback: spot pertama (terendah realmnya = paling mudah diakses)
-        local fallback = BaguaSpots[#BaguaSpots]
-        if fallback then
-            return fallback.Position, fallback.Name
+    -- 1. Cari spot yang tepat sesuai ranah pemain
+    for _, spot in ipairs(BaguaSpots) do
+        if spot.Name == targetName or string.find(string.lower(spot.Name), string.lower(targetName), 1, true) then
+            return spot.Position, spot.Name .. " (×" .. tostring(spot.Multiplier) .. " Qi)"
         end
     end
 
-    -- Fallback ke Pulau Saya
-    scanIslands()
-    for _, isl in ipairs(IslandSpots) do
-        if isl.IsMine then
-            return isl.Position, isl.Name
+    -- 2. Fallback: Cari spot dengan RealmReq == realmIdx
+    for _, spot in ipairs(BaguaSpots) do
+        if (spot.RealmReq or 1) == realmIdx then
+            return spot.Position, spot.Name .. " (×" .. tostring(spot.Multiplier) .. " Qi)"
         end
     end
-    return nil, nil
+
+    -- 3. Fallback: Spot dengan RealmReq <= realmIdx
+    for _, spot in ipairs(BaguaSpots) do
+        if (spot.RealmReq or 1) <= realmIdx then
+            return spot.Position, spot.Name .. " (×" .. tostring(spot.Multiplier) .. " Qi)"
+        end
+    end
+
+    -- 4. Default aman: Outer Court Bagua Circle
+    local defaultSpot = CULTIVATION_SPOTS_HARDCODED[2]
+    return defaultSpot.Center, defaultSpot.Name
 end
 
 -- ═══════════════════════════════════════════
@@ -1903,61 +1980,149 @@ local function attemptBreakthrough()
     local beforeIdx = State.RealmIndex
     local beforeName = State.Realm
 
-    -- 1. Coba tombol HUD Breakthrough [B] (yang terlihat di tengah bawah foto: "Breakthrough • 92% [B]")
-    pressKey(Enum.KeyCode.B)
-    clickVisibleGui({ "breakthrough", "terobosan", "ascend", "rebirth" }, nil, { "close", "cancel" })
-    task.wait(0.4)
+    local pg = getPlayerGui()
+    local hud = pg and pg:FindFirstChild("CultivationHud")
+    local action = hud and hud:FindFirstChild("Action")
 
-    -- 2. Coba action remote dari konstanta ElderTalk / Hud atau Spy
-    for actName, _ in pairs(Discovered.Learned.Breakthrough) do
-        fireAction(actName)
+    -- STEP 1: Klik tombol Rebirth & Breakthrough di Action HUD
+    -- Disk = Tombol lingkaran besar emas dengan karakter "破" (Breakthrough)
+    -- Rebirth = Tombol Rebirth di Action bar
+    if action then
+        local disk = action:FindFirstChild("Disk")
+        local hitDisk = disk and disk:FindFirstChild("Hit")
+        if hitDisk and isActuallyVisible(hitDisk) then
+            triggerButton(hitDisk)
+            log("Memicu tombol Breakthrough (Disk/破)...")
+        end
+
+        local rebirth = action:FindFirstChild("Rebirth")
+        local hitRebirth = rebirth and rebirth:FindFirstChild("Hit")
+        if hitRebirth and isActuallyVisible(hitRebirth) then
+            triggerButton(hitRebirth)
+            log("Memicu tombol Rebirth di HUD...")
+        end
     end
-    for actName, _ in pairs(Discovered.ActionStrings["UI.ElderTalk"] or {}) do
+
+    -- Shortcut tombol keyboard B
+    pressKey(Enum.KeyCode.B)
+
+    -- Cek juga tombol shortcut di AdminPanel jika panel admin aktif di HUD
+    if hud and hud:FindFirstChild("AdminPanel") then
+        local grid = hud.AdminPanel:FindFirstChild("Grid", true)
+        if grid then
+            local bBt = grid:FindFirstChild("B_Breakthrough")
+            local hitBt = bBt and bBt:FindFirstChild("Hit")
+            if hitBt and isActuallyVisible(hitBt) then triggerButton(hitBt) end
+
+            local bRb = grid:FindFirstChild("B_Rebirth now")
+            local hitRb = bRb and bRb:FindFirstChild("Hit")
+            if hitRb and isActuallyVisible(hitRb) then triggerButton(hitRb) end
+        end
+    end
+
+    task.wait(0.5)
+
+    -- STEP 2: Cek apakah ada popup Modal atau Toast yang menampilkan syarat (Herbal/Ramuan/Pil)
+    local modals = pg and pg:FindFirstChild("CultivationModals")
+    local modalPanel = modals and modals:FindFirstChild("Modal") and modals.Modal:FindFirstChild("Panel")
+    local hasRequirements = false
+    local reqDetails = {}
+
+    if modalPanel and modalPanel.Visible then
+        for _, lbl in ipairs(modalPanel:GetDescendants()) do
+            if lbl:IsA("TextLabel") and lbl.Visible and lbl.Text ~= "" then
+                local low = string.lower(lbl.Text)
+                if string.find(low, "need", 1, true)
+                    or string.find(low, "require", 1, true)
+                    or string.find(low, "missing", 1, true)
+                    or string.find(low, "kurang", 1, true)
+                    or string.find(low, "butuh", 1, true) then
+                    hasRequirements = true
+                    table.insert(reqDetails, lbl.Text)
+                end
+            end
+        end
+    end
+
+    -- Scan seluruh layar untuk pesan syarat jika modal tidak tertangkap
+    if not hasRequirements and pg then
+        for _, lbl in ipairs(pg:GetDescendants()) do
+            if lbl:IsA("TextLabel") and isActuallyVisible(lbl) and not (OurGui and lbl:IsDescendantOf(OurGui)) then
+                local low = string.lower(lbl.Text or "")
+                if string.find(low, "need herb", 1, true)
+                    or string.find(low, "require", 1, true)
+                    or string.find(low, "not enough", 1, true)
+                    or string.find(low, "butuh bahan", 1, true) then
+                    hasRequirements = true
+                    table.insert(reqDetails, lbl.Text)
+                    break
+                end
+            end
+        end
+    end
+
+    -- STEP 3: Jika butuh herbal/ramuan, otomatis kumpulkan & racik lalu coba lagi
+    if hasRequirements then
+        log("Breakthrough butuh bahan: " .. (#reqDetails > 0 and table.concat(reqDetails, " | ") or "Herbal/Pil"))
+        -- Tutup popup jika ada tombol Close
+        if modalPanel then
+            local closeBtn = modalPanel:FindFirstChild("Close") and modalPanel.Close:FindFirstChild("Hit")
+            if closeBtn then triggerButton(closeBtn) end
+        end
+        task.wait(0.3)
+
+        State.Step = "Cari Herbal & Racik Pil"
+        gatherAndBrewForRebirth()
+        task.wait(0.6)
+
+        -- Coba tekan tombol Breakthrough kembali setelah bahan diracik
+        if action then
+            local disk = action:FindFirstChild("Disk")
+            local hitDisk = disk and disk:FindFirstChild("Hit")
+            if hitDisk and isActuallyVisible(hitDisk) then triggerButton(hitDisk) end
+        end
+        pressKey(Enum.KeyCode.B)
+        task.wait(0.5)
+    end
+
+    -- STEP 4: Konfirmasi jika ada tombol konfirmasi (Yes / Confirm / Ok / 破)
+    if modalPanel and modalPanel.Visible then
+        for _, obj in ipairs(modalPanel:GetDescendants()) do
+            if (obj:IsA("TextButton") or obj:IsA("ImageButton")) and isActuallyVisible(obj) then
+                local pName = obj.Parent and string.lower(obj.Parent.Name) or ""
+                if string.find(pName, "confirm", 1, true) or string.find(pName, "yes", 1, true) or string.find(pName, "ok", 1, true) or string.find(pName, "break", 1, true) or string.find(pName, "claim", 1, true) then
+                    triggerButton(obj)
+                end
+            end
+        end
+    end
+
+    -- STEP 5: Tembak action remote sebagai cadangan
+    for actName, _ in pairs(Discovered.Learned.Breakthrough) do
         fireAction(actName)
     end
     fireAction("Breakthrough")
     fireAction("Rebirth")
     task.wait(0.6)
 
-    refreshPlayerState()
-    if State.RealmIndex > beforeIdx or State.Realm ~= beforeName then
-        log("Breakthrough HUD berhasil! Realm: " .. State.Realm)
-        return true
-    end
-
-    -- 3. Terbang menuju Elder Yun bila Breakthrough HUD butuh NPC Elder Yun
-    local elderPos = findElderYun()
-    if elderPos then
-        travelTo(elderPos, "Elder Yun (Rebirth NPC)", 6)
-        task.wait(0.25)
-        local prompt = findPromptNear(elderPos, 24)
-        if prompt then
-            usePrompt(prompt)
-            task.wait(0.5)
-        end
-        clickVisibleGui({ "breakthrough", "rebirth", "terobosan", "ascend", "yes", "confirm" }, nil, { "close", "cancel" })
-        pressKey(Enum.KeyCode.B)
-        fireAction("Breakthrough")
-        fireAction("Rebirth")
-    end
-
-    -- Pantau hasil & Tribulation selama 10 detik
+    -- STEP 6: Pantau apakah realm berhasil naik (maks 8 detik)
     local t0 = os.clock()
-    while os.clock() - t0 < 10 do
+    while os.clock() - t0 < 8 do
         if not State.AutoRebirth then break end
-        if isTribulating() and State.AutoDefend then
-            log("Heavenly Tribulation aktif! Meditasi & Bertahan...")
+        if isTribulating() then
+            log("Heavenly Tribulation! Bertahan...")
             fireAction("Defend")
-            startMeditatingAt(nil)
+            task.wait(0.4)
         end
         refreshPlayerState()
         if State.RealmIndex > beforeIdx or State.Realm ~= beforeName then
-            log("Breakthrough sukses ke: " .. State.Realm)
+            log("✅ BREAKTHROUGH BERHASIL! Ranah baru: " .. tostring(State.Realm) .. " (Tier " .. State.RealmIndex .. ")")
             return true
         end
-        task.wait(0.6)
+        task.wait(0.5)
     end
 
+    -- TIDAK PERNAH PERGI KE ELDER YUN (sesuai instruksi user)
     return false
 end
 
@@ -1986,13 +2151,15 @@ local function autoRebirthLoop()
 
                 local success = attemptBreakthrough()
                 if not success then
-                    log("Rebirth gagal/tertahan — cek kebutuhan herbal & Cauldron...")
+                    log("Breakthrough butuh persiapan — cek bahan & Cauldron...")
                     State.Step = "Cari Herbal & Racik Pil"
                     gatherAndBrewForRebirth()
                     State.Step = "Ulangi Breakthrough"
                     attemptBreakthrough()
+                else
+                    log("Breakthrough sukses! Bersiap menuju spot ranah baru...")
                 end
-                task.wait(2.0)
+                task.wait(1.5)
             else
                 State.Step = string.format("Kultivasi (Qi %.1f%%)", qi)
                 local spotPos, spotName = getBestCultivationSpot()
@@ -2027,77 +2194,148 @@ end
 
 -- ═══════════════════════════════════════════
 --  TALENT GACHA FAST ROLL
+--  Berdasarkan scan live Game:
+--  - Buka window: CultivationHud.Side.Talent.Hit
+--  - Tombol Roll: CultivationModals.Modal.Panel.Body.Bar.Roll.Hit
+--  - Tombol Fast: CultivationModals.Modal.Panel.Body.Bar.Fast.Hit
+--  - Tombol Auto: CultivationModals.Modal.Panel.Body.Bar.Auto.Hit
 -- ═══════════════════════════════════════════
-local function isTalentWindowOpen()
+local TALENT_TIER_LABELS = { "凡", "良", "秀", "奇", "天", "雷", "混", "星",
+    "Common", "Good", "Fine", "Rare", "Heavenly", "Thunder", "Chaos", "Star", "Mythic" }
+
+-- Buka jendela Talent dari navbar Side.Talent.Hit
+local function openTalentWindow()
     local pg = getPlayerGui()
-    if not pg then return false, nil end
+    if not pg then return false end
+    local hud = pg:FindFirstChild("CultivationHud")
+    local side = hud and hud:FindFirstChild("Side")
+    local talentNav = side and side:FindFirstChild("Talent")
+    local hit = talentNav and talentNav:FindFirstChild("Hit")
+    if hit and (hit:IsA("TextButton") or hit:IsA("ImageButton")) then
+        triggerButton(hit)
+        task.wait(0.35)
+        return true
+    end
+    return clickHitButton({"Talent"}, {"admin","autoclick"})
+end
+
+-- Dapatkan tombol Roll langsung dari path bar modal game
+local function getTalentRollButton()
+    local pg = getPlayerGui()
+    if not pg then return nil end
+    local modals = pg:FindFirstChild("CultivationModals")
+    if modals then
+        local panel = modals:FindFirstChild("Panel", true)
+        if panel then
+            local bar = panel:FindFirstChild("Bar", true)
+            local roll = bar and bar:FindFirstChild("Roll")
+            local hit = roll and roll:FindFirstChild("Hit")
+            if hit and (hit:IsA("TextButton") or hit:IsA("ImageButton")) then
+                return hit
+            end
+        end
+    end
+    -- Fallback scan di seluruh PlayerGui untuk Parent=Roll & Grandparent=Bar
     for _, obj in ipairs(pg:GetDescendants()) do
-        if (obj:IsA("Frame") or obj:IsA("CanvasGroup") or obj:IsA("ScrollingFrame")) and isActuallyVisible(obj) then
-            if not (OurGui and obj:IsDescendantOf(OurGui)) and obj.AbsoluteSize.X > 180 and obj.AbsoluteSize.Y > 140 then
-                local low = string.lower(obj.Name)
-                if string.find(low, "talent", 1, true) then
-                    return true, obj
+        if (obj:IsA("TextButton") or obj:IsA("ImageButton")) and obj.Name == "Hit" then
+            if obj.Parent and obj.Parent.Name == "Roll" and obj.Parent.Parent and obj.Parent.Parent.Name == "Bar" then
+                return obj
+            end
+        end
+    end
+    return nil
+end
+
+local function isTalentWindowOpen()
+    local btn = getTalentRollButton()
+    if btn and isActuallyVisible(btn) then
+        return true, btn.Parent and btn.Parent.Parent
+    end
+    local pg = getPlayerGui()
+    local modals = pg and pg:FindFirstChild("CultivationModals")
+    local modal = modals and modals:FindFirstChild("Modal")
+    if modal and modal.Visible then
+        return true, modal
+    end
+    return false, nil
+end
+
+-- Baca Talent yang sedang aktif dari Card / Drum / Right rows di Panel.Body
+local function readCurrentTalentFromWindow()
+    local pg = getPlayerGui()
+    if not pg then return nil, false end
+    local modals = pg:FindFirstChild("CultivationModals")
+    local panel = modals and modals:FindFirstChild("Panel", true)
+    if not panel then return nil, false end
+
+    for _, lbl in ipairs(panel:GetDescendants()) do
+        if lbl:IsA("TextLabel") and lbl.Visible and lbl.Text ~= "" then
+            local txt = lbl.Text
+            local low = string.lower(txt)
+            -- Filter teks tombol statis
+            if not string.find(low, "roll", 1, true)
+                and not string.find(low, "buy", 1, true)
+                and not string.find(low, "pity", 1, true)
+                and not string.find(low, "cost", 1, true)
+                and not string.find(low, "auto", 1, true)
+                and not string.find(low, "fast", 1, true)
+                and #txt >= 2 then
+
+                if State.TargetTalent ~= "" and string.find(low, string.lower(State.TargetTalent), 1, true) then
+                    return txt, true
                 end
-                for _, child in ipairs(obj:GetChildren()) do
-                    if child:IsA("TextLabel") and child.Visible then
-                        local tl = string.lower(child.Text or "")
-                        if string.find(tl, "talent", 1, true) or string.find(tl, "reroll", 1, true) then
-                            return true, obj
-                        end
+                if State.TalentTier ~= "" and string.find(low, string.lower(State.TalentTier), 1, true) then
+                    return txt, true
+                end
+                for _, tier in ipairs(TALENT_TIER_LABELS) do
+                    if string.find(txt, tier, 1, true) then
+                        local matched = (State.TalentTier == "" or string.find(txt, State.TalentTier, 1, true) ~= nil)
+                        return txt, matched
                     end
                 end
             end
         end
     end
-    -- Jika tombol Roll/Reroll sudah terlihat di layar, window pasti sudah terbuka
-    local rollBtns = findVisibleButtons({ "reroll", "roll talent", "spin", "roll" }, nil, { "close", "exit", "auto", "lock", "scroll" })
-    if #rollBtns > 0 then
-        return true, nil
-    end
-    return false, nil
-end
-
-local function readCurrentTalentFromWindow(winObj)
-    local scope = winObj or getPlayerGui()
-    if not scope then return nil end
-    local foundText = nil
-    for _, lbl in ipairs(scope:GetDescendants()) do
-        if lbl:IsA("TextLabel") and isActuallyVisible(lbl) and not (OurGui and lbl:IsDescendantOf(OurGui)) then
-            local txt = lbl.Text or ""
-            local low = string.lower(txt)
-            if State.TargetTalent ~= "" and string.find(low, string.lower(State.TargetTalent), 1, true) then
-                return txt, true
-            end
-            if State.TalentTier ~= "" and string.find(low, string.lower(State.TalentTier), 1, true) then
-                return txt, true
-            end
-            if string.find(low, "talent", 1, true) and #txt > 3 then
-                foundText = txt
-            end
-        end
-    end
-    return foundText, false
+    return nil, false
 end
 
 local function rollTalentOnce()
-    -- 1. Pastikan window talent terbuka
-    local isOpen, winFrame = isTalentWindowOpen()
+    -- STEP 1: Pastikan window Talent terbuka
+    local isOpen = isTalentWindowOpen()
     if not isOpen then
-        clickVisibleGui({ "talent", "bakat" }, nil, { "close", "auto" })
-        task.wait(0.35)
-        isOpen, winFrame = isTalentWindowOpen()
+        openTalentWindow()
+        task.wait(0.4)
     end
 
-    -- 2. Cari & klik tombol Roll / Reroll / Spin KHUSUS di dalam Talent window (atau layar)
+    -- STEP 2: Dapatkan tombol Roll (CultivationModals.Modal.Panel.Body.Bar.Roll.Hit)
+    local rollBtn = getTalentRollButton()
     local rolledUi = false
-    if winFrame then
-        rolledUi = clickVisibleGui({ "roll", "reroll", "spin", "gacha", "draw", "awak", "acak" }, winFrame, { "close", "exit", "auto", "lock" })
-    end
-    if not rolledUi then
-        rolledUi = clickVisibleGui({ "reroll", "roll talent", "spin", "gacha", "roll" }, nil, { "close", "exit", "auto", "lock" })
+
+    if rollBtn then
+        -- Cek juga tombol Fast mode di bar yang sama agar roll lebih cepat
+        local bar = rollBtn.Parent and rollBtn.Parent.Parent
+        local fast = bar and bar:FindFirstChild("Fast")
+        local fastHit = fast and fast:FindFirstChild("Hit")
+        if fastHit and isActuallyVisible(fastHit) then
+            pcall(function() triggerButton(fastHit) end)
+        end
+
+        triggerButton(rollBtn)
+        rolledUi = true
+    else
+        -- Fallback: Tombol admin B_+5 rolls jika ada di AdminPanel
+        local pg = getPlayerGui()
+        local hud = pg and pg:FindFirstChild("CultivationHud")
+        local grid = hud and hud:FindFirstChild("Grid", true)
+        local bRoll = grid and grid:FindFirstChild("B_+5 rolls")
+        local hitRoll = bRoll and bRoll:FindFirstChild("Hit")
+        if hitRoll and isActuallyVisible(hitRoll) then
+            triggerButton(hitRoll)
+            rolledUi = true
+        end
     end
 
-    -- 3. Panggil modul TalentWindow langsung jika menyediakan fungsi roll
+    -- STEP 3: Panggil modul TalentWindow jika ada
     local twMod = safeReqClient("UI.TalentWindow")
     if type(twMod) == "table" then
         for _, fnName in ipairs({ "Roll", "Reroll", "Spin", "RequestRoll", "DoRoll" }) do
@@ -2107,24 +2345,13 @@ local function rollTalentOnce()
         end
     end
 
-    -- 4. Tembak semua aksi yang dipelajari dari Spy / konstanta TalentWindow
+    -- STEP 4: Learned actions
     for actName, args in pairs(Discovered.Learned.RollTalent) do
         fireAction(unpackFn(args))
     end
-    for actName, kind in pairs(Discovered.ActionStrings["UI.TalentWindow"] or {}) do
-        if kind == "FIRE" or string.find(string.lower(actName), "roll", 1, true) or string.find(string.lower(actName), "talent", 1, true) then
-            fireAction(actName)
-        end
-    end
 
-    -- 5. Fallback nama standar
-    if not rolledUi then
-        fireAction("RollTalent")
-        fireAction("TalentRoll")
-        fireAction("RerollTalent")
-    end
-
-    local talentTxt, matched = readCurrentTalentFromWindow(winFrame)
+    task.wait(0.1)
+    local talentTxt, matched = readCurrentTalentFromWindow()
     return matched, talentTxt
 end
 
@@ -2139,9 +2366,13 @@ local function talentGachaLoop()
             local matched, talentName = rollTalentOnce()
             count = count + 1
             if matched then
-                log("Target Talent Didapat (" .. count .. "x roll): " .. tostring(talentName))
+                log("🎯 TARGET TALENT DIDAPAT (" .. count .. "x roll): " .. tostring(talentName))
+                notify("Talent Gacha", "Target didapat: " .. tostring(talentName))
                 State.AutoGacha = false
                 shouldStop = true
+            end
+            if count % 10 == 0 then
+                log("Roll ke-" .. count .. " | Talent saat ini: " .. tostring(talentName))
             end
         end)
         if shouldStop then break end
@@ -2463,10 +2694,10 @@ TalentTab:CreateSection("Auto Roll Talent (Fast Gacha)")
 
 TalentTab:CreateDropdown({
     Name = "Tier / Rarity Target",
-    Options = { "Mythic", "Legendary", "Divine", "Immortal", "Godly", "Celestial" },
-    CurrentValue = "Mythic",
+    Options = { "星 (Cosmic / Star ×8)", "混 (Chaos ×5)", "雷 (Thunder ×3)", "天 (Heavenly ×2.2)", "奇 (Rare ×1.6)", "Mythic", "Legendary" },
+    CurrentValue = "星 (Cosmic / Star ×8)",
     Callback = function(v)
-        State.TalentTier = v
+        State.TalentTier = string.match(v, "^([^%s%(]+)") or v
     end,
 })
 
@@ -2480,10 +2711,10 @@ TalentTab:CreateInput({
 
 TalentTab:CreateSlider({
     Name = "Jeda Antar Roll (Detik)",
-    Range = { 0.1, 1.5 },
+    Range = { 0.05, 1.0 },
     Increment = 0.05,
     Suffix = " s",
-    CurrentValue = 0.35,
+    CurrentValue = 0.25,
     Callback = function(v)
         State.RollDelay = v
     end,
@@ -2495,7 +2726,7 @@ TalentTab:CreateToggle({
     Callback = function(v)
         State.AutoGacha = v
         if v then
-            notify("Talent", "Fast Roll aktif! Memicu tombol Roll di TalentWindow.")
+            notify("Talent", "Fast Roll aktif! Menembak tombol Roll di Talent Window.")
             task.spawn(talentGachaLoop)
         else
             notify("Talent", "Fast Roll berhenti.")
@@ -2508,8 +2739,15 @@ TalentTab:CreateButton({
     Callback = safeRun(function()
         task.spawn(function()
             local matched, name = rollTalentOnce()
-            notify("Talent Roll", matched and ("Target didapat: " .. tostring(name)) or "Roll dikirim.")
+            notify("Talent Roll", matched and ("Target didapat: " .. tostring(name)) or ("Roll dikirim: " .. tostring(name or "sukses")))
         end)
+    end),
+})
+
+TalentTab:CreateButton({
+    Name = "Buka / Tutup Window Talent Game",
+    Callback = safeRun(function()
+        openTalentWindow()
     end),
 })
 
