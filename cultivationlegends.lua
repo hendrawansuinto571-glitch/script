@@ -14,17 +14,17 @@ local SCRIPT_BASE_URL = "https://raw.githubusercontent.com/hendrawansuinto571-gl
 --  LOAD UI FRAMEWORK (main.lua)
 -- ═══════════════════════════════════════════
 local Unionsal = getgenv().UnionsalHub or getgenv().NemesisHub
-if not Unionsal then
+if not Unionsal or type(Unionsal.CreateWindow) ~= "function" then
     local okLocal, resLocal = pcall(function()
         return loadstring(readfile("main.lua"))()
     end)
-    if okLocal and resLocal then
+    if okLocal and resLocal and type(resLocal.CreateWindow) == "function" then
         Unionsal = resLocal
     else
         local okWeb, resWeb = pcall(function()
             return loadstring(game:HttpGet(SCRIPT_BASE_URL .. "main.lua"))()
         end)
-        if okWeb and resWeb then
+        if okWeb and resWeb and type(resWeb.CreateWindow) == "function" then
             Unionsal = resWeb
         else
             warn("[Unionsal Hub] Gagal memuat main.lua")
@@ -639,7 +639,7 @@ local function clickHitButton(parentKeywords, excludeKeywords, scopeGui)
     return false
 end
 
-
+local function usePrompt(prompt)
     if not prompt or not prompt.Parent then return false end
     local ok = false
     if type(fireproximityprompt) == "function" then
@@ -930,7 +930,7 @@ local REALM_TO_IDX = {
 
 -- Baca realm dari head label karakter LOCAL (paling akurat, langsung dari game)
 local function readRealmFromHead()
-    local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait(3)
+    local char = getCharacter()
     if not char then return nil, nil end
     local head = char:FindFirstChild("Head")
     if not head then return nil, nil end
@@ -2439,15 +2439,35 @@ end
 -- ═══════════════════════════════════════════
 --  INITIALIZE DISCOVERY & DATA
 -- ═══════════════════════════════════════════
-installPassiveSpy()
-task.spawn(extractConstantsFromClient)
+pcall(installPassiveSpy)
+pcall(function() task.spawn(extractConstantsFromClient) end)
 
-buildItemCatalog()
-buildRealmList()
-buildRecipes()
-scanSharedLocations()
-scanBaguaCircles()
-scanIslands()
+pcall(buildItemCatalog)
+pcall(buildRealmList)
+pcall(buildRecipes)
+pcall(scanSharedLocations)
+pcall(scanBaguaCircles)
+pcall(scanIslands)
+
+-- Bersihkan instance GUI lama jika ada (mencegah GUI tertumpuk atau sembunyi)
+pcall(function()
+    local parents = {
+        (gethui and gethui()),
+        CoreGui,
+        (LocalPlayer and LocalPlayer:FindFirstChildOfClass("PlayerGui"))
+    }
+    for _, p in ipairs(parents) do
+        if p then
+            for _, c in ipairs(p:GetChildren()) do
+                if c.Name == "UnionsalWindowGui" or c.Name == "UnionsalKickScreen" then
+                    c:Destroy()
+                end
+            end
+        end
+    end
+end)
+
+print("[Unionsal Hub] Membuka menu Cultivation Legends...")
 
 -- ═══════════════════════════════════════════
 --  BUILD UI (UNIONSAL GLASS BENTO)
@@ -2459,6 +2479,8 @@ local Window = Unionsal:CreateWindow({
     ScriptName = "cultivationlegends.lua",
     Version    = "v2.5",
 })
+
+print("[Unionsal Hub] Window berhasil dibuat!")
 
 OurGui = Window.ScreenGui
 
