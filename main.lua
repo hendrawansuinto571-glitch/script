@@ -282,6 +282,15 @@ local function validateGame()
     local placeId = game.PlaceId
     local gameInfo = ALLOWED_GAMES[placeId] or ALLOWED_GAMES[tonumber(placeId)]
 
+    -- 0. Signature unik Cultivation Legends (folder Obitel / Islands dari decompile)
+    pcall(function()
+        local obitel = workspace:FindFirstChild("Obitel")
+        local islands = workspace:FindFirstChild("Islands") or (obitel and obitel:FindFirstChild("Islands"))
+        if obitel or islands then
+            gameInfo = { name = "Cultivation Legends", script = "cultivationlegends" }
+        end
+    end)
+
     -- 1. Cek secara dinamis melalui judul game di Marketplace
     if not gameInfo and MarketplaceService then
         pcall(function()
@@ -294,6 +303,8 @@ local function validateGame()
                     gameInfo = { name = prodInfo.Name, script = "egg" }
                 elseif string.find(lowerName, "ragdoll") or string.find(lowerName, "realistic") then
                     gameInfo = { name = prodInfo.Name, script = "ragdoll" }
+                elseif string.find(lowerName, "cultivation") or string.find(lowerName, "cultivate") then
+                    gameInfo = { name = prodInfo.Name, script = "cultivationlegends" }
                 end
             end
         end)
@@ -302,7 +313,11 @@ local function validateGame()
     -- 2. Cek deteksi elemen khas di Workspace / PlayerScripts
     if not gameInfo then
         pcall(function()
-            if workspace:FindFirstChild("Dummies") or workspace:FindFirstChild("Crowd") or (LocalPlayer and LocalPlayer:FindFirstChild("PlayerScripts") and LocalPlayer.PlayerScripts:FindFirstChild("Client")) then
+            local obitel = workspace:FindFirstChild("Obitel")
+            local islands = workspace:FindFirstChild("Islands") or (obitel and obitel:FindFirstChild("Islands"))
+            if obitel or islands then
+                gameInfo = { name = "Cultivation Legends", script = "cultivationlegends" }
+            elseif workspace:FindFirstChild("Dummies") or workspace:FindFirstChild("Crowd") or (LocalPlayer and LocalPlayer:FindFirstChild("PlayerScripts") and LocalPlayer.PlayerScripts:FindFirstChild("Client")) then
                 gameInfo = { name = "Hyper-Realistic Ragdoll", script = "ragdoll" }
             elseif workspace:FindFirstChild("MapMakingKit") or workspace:FindFirstChild("TeleportPart") then
                 gameInfo = { name = "Blush Canyon", script = "blush" }
