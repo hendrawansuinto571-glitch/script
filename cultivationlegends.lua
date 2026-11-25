@@ -893,33 +893,97 @@ local function readStateModuleField(keys)
     return nil
 end
 
--- Scan HUD tepatnya untuk banner "Breakthrough • 92% [B]" atau label Qi
+-- Parser angka dengan satuan K, M, B, T (misal "35.8K" → 35800, "140K" → 140000)
+local function parseSuffixedNumber(str)
+    if not str then return nil end
+    local clean = string.gsub(str, "[,%s]", "")
+    local num, suffix = string.match(string.upper(clean), "([%d%.]+)%s*([KMBT]?)")
+    if not num then return nil end
+    local n = tonumber(num)
+    if not n then return nil end
+    if suffix == "K" then n = n * 1e3
+    elseif suffix == "M" then n = n * 1e6
+    elseif suffix == "B" then n = n * 1e9
+    elseif suffix == "T" then n = n * 1e12
+    end
+    return n
+end
+
+-- Scan HUD untuk persentase Qi:
+-- 1. Format "35.8K / 140K qi" (format resmi Cultivation Legends di bar atas)
+-- 2. Format persen "%"
+-- 3. Ukuran lebar Scale X dari Frame Progress Bar di CultivationHud
 local function scanHudBreakthroughQi()
     local pg = getPlayerGui()
     if not pg then return nil end
-    local best, bestScore = nil, -1
+    local bestPercent, bestScore = nil, -1
+
     for _, d in ipairs(pg:GetDescendants()) do
         if d:IsA("TextLabel") and isActuallyVisible(d) and not (OurGui and d:IsDescendantOf(OurGui)) then
             local txt = d.Text or ""
-            local num = tonumber(string.match(txt, "(%d+%.?%d*)%s*%%"))
-            if num then
-                local low = string.lower(txt)
-                local score = 0
+            local low = string.lower(txt)
+
+            -- Format 1: "35.8K / 140K qi" atau "140K / 140K"
+            local curStr, maxStr = string.match(txt, "([%d%.]+%s*[KkMmBbTt]?%s*)%s*/%s*([%d%.]+%s*[KkMmBbTt]?)")
+            if curStr and maxStr then
+                local curVal = parseSuffixedNumber(curStr)
+                local maxVal = parseSuffixedNumber(maxStr)
+                if curVal and maxVal and maxVal > 0 then
+                    local pct = clamp((curVal / maxVal) * 100, 0, 100)
+                    local score = 25
+                    if string.find(low, "qi", 1, true) then score = score + 35 end
+                    local pName = d.Parent and string.lower(d.Parent.Name) or ""
+                    if string.find(pName, "qi", 1, true) or string.find(pName, "hud", 1, true) or string.find(pName, "bar", 1, true) then
+                        score = score + 15
+                    end
+                    if score > bestScore then
+                        bestScore = score
+                        bestPercent = pct
+                    end
+                end
+            end
+
+            -- Format 2: "100%" atau "92%"
+            local pctNum = tonumber(string.match(txt, "(%d+%.?%d*)%s*%%"))
+            if pctNum then
+                local score = 10
                 if string.find(low, "breakthrough", 1, true) or string.find(low, "qi", 1, true) or string.find(low, "[b]", 1, true) then
-                    score = score + 10
+                    score = score + 25
                 end
                 local pName = d.Parent and string.lower(d.Parent.Name) or ""
                 if string.find(pName, "break", 1, true) or string.find(pName, "qi", 1, true) or string.find(pName, "hud", 1, true) then
-                    score = score + 5
+                    score = score + 10
                 end
                 if score > bestScore then
                     bestScore = score
-                    best = num
+                    bestPercent = pctNum
                 end
             end
         end
     end
-    return best
+
+    -- Format 3: Ukuran Frame Bar di CultivationHud
+    local hud = pg:FindFirstChild("CultivationHud")
+    if hud then
+        for _, obj in ipairs(hud:GetDescendants()) do
+            if obj:IsA("Frame") and obj.Visible then
+                local pName = obj.Parent and string.lower(obj.Parent.Name) or ""
+                local oName = string.lower(obj.Name)
+                if string.find(pName, "bar", 1, true) or string.find(oName, "bar", 1, true) or string.find(oName, "fill", 1, true) or string.find(oName, "progress", 1, true) then
+                    local sx = obj.Size.X.Scale
+                    if sx and sx > 0 and sx <= 1.02 then
+                        local barPct = clamp(sx * 100, 0, 100)
+                        if 15 > bestScore then
+                            bestScore = 15
+                            bestPercent = barPct
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return bestPercent
 end
 
 -- Peta realm name → index (berdasarkan head label scan real dari Workspace)
@@ -1760,6 +1824,53 @@ end
 --  MEDITASI
 -- ═══════════════════════════════════════════
 local function isCurrentlyMeditating()
+    -- 1. Cek Action.Stand di CultivationHud (indikator live paling akurat dari game!)
+    -- Tombol "起" (Stand) hanya muncul saat karakter sedang duduk/meditasi
+    local pg = getPlayerGui()
+    local hud = pg and pg:FindFirstChild("CultivationHud")
+    local action = hud and hud:FindFirstChild("Action")
+    if action then
+        local standBtn = action:FindFirstChild("Stand")
+        if standBtn and isActuallyVisible(standBtn) then
+            for _, d in ipairs(standBtn:GetDescendants()) do
+                if d:IsA("TextLabel") and d.Text ~= "" then
+                    local t = string.lower(d.Text)
+                    if string.find(t, "stand", 1, true) or string.find(d.Text, "起", 1, true) then
+                        return true
+                    end
+                end
+            end
+        end
+    end
+
+    -- 2. Cek animasi Humanoid (cross-legged / meditation animation)
+    local hum = getHumanoid()
+    if hum then
+        if hum.Sit then return true end
+        local animator = hum:FindFirstChildOfClass("Animator")
+        if animator then
+            for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+                local aName = string.lower(track.Animation and track.Animation.Name or "")
+                if string.find(aName, "meditat", 1, true) or string.find(aName, "sit", 1, true) or string.find(aName, "cultivat", 1, true) then
+                    return true
+                end
+            end
+        end
+    end
+
+    -- 3. Cek efek visual aura / runes di sekitar karakter saat meditasi
+    local char = getCharacter()
+    if char then
+        for _, p in ipairs(char:GetDescendants()) do
+            if (p:IsA("ParticleEmitter") or p:IsA("Beam") or p:IsA("BillboardGui")) and p.Enabled then
+                local pName = string.lower(p.Name)
+                if string.find(pName, "meditat", 1, true) or string.find(pName, "aura", 1, true) or string.find(pName, "circle", 1, true) then
+                    return true
+                end
+            end
+        end
+    end
+
     local attr = attrOf({ "Meditating", "IsMeditating", "InMeditation" })
     if attr == true then return true end
 
@@ -1774,10 +1885,6 @@ local function isCurrentlyMeditating()
         end
     end
 
-    local hum = getHumanoid()
-    if hum and hum.Sit then return true end
-
-    -- Cek tombol HUD apakah bertuliskan Stop Meditate / Meditating
     local stopBtns = findVisibleButtons({ "stop medit", "meditating", "berhenti" })
     if #stopBtns > 0 then return true end
 
@@ -1787,7 +1894,46 @@ end
 local function startMeditatingAt(spotPos)
     if isCurrentlyMeditating() then return true end
 
-    -- 1. Coba panggil method dari Client.Meditation bila ada
+    local pg = getPlayerGui()
+    local hud = pg and pg:FindFirstChild("CultivationHud")
+    local action = hud and hud:FindFirstChild("Action")
+
+    -- 1. Klik Action.Stand jika saat ini bertuliskan "Sit" / "Meditate" / "坐"
+    if action then
+        local standBtn = action:FindFirstChild("Stand")
+        if standBtn and isActuallyVisible(standBtn) then
+            local isStandState = false
+            for _, d in ipairs(standBtn:GetDescendants()) do
+                if d:IsA("TextLabel") and d.Text ~= "" then
+                    local t = string.lower(d.Text)
+                    if string.find(t, "stand", 1, true) or string.find(d.Text, "起", 1, true) then
+                        isStandState = true
+                        break
+                    end
+                end
+            end
+            -- Jika bukan bertuliskan "Stand", berarti tombolnya adalah "Sit", klik untuk duduk!
+            if not isStandState then
+                local hitStand = standBtn:FindFirstChild("Hit")
+                if hitStand and isActuallyVisible(hitStand) then
+                    triggerButton(hitStand)
+                    task.wait(0.3)
+                    if isCurrentlyMeditating() then return true end
+                end
+            end
+        end
+
+        -- 2. Klik Action.Disk (tombol "氣" besar / Click for qi)
+        local disk = action:FindFirstChild("Disk")
+        local hitDisk = disk and disk:FindFirstChild("Hit")
+        if hitDisk and isActuallyVisible(hitDisk) then
+            triggerButton(hitDisk)
+            task.wait(0.2)
+            if isCurrentlyMeditating() then return true end
+        end
+    end
+
+    -- 3. Coba panggil method dari Client.Meditation bila ada
     local medMod = safeReqClient("Meditation")
     if type(medMod) == "table" then
         for _, fnName in ipairs({ "Start", "Begin", "Meditate", "Set", "Toggle" }) do
@@ -1799,7 +1945,7 @@ local function startMeditatingAt(spotPos)
         end
     end
 
-    -- 2. Trigger ProximityPrompt di Bagua Circle jika ada
+    -- 4. Trigger ProximityPrompt di Bagua Circle jika ada
     if spotPos then
         local prompt = findPromptNear(spotPos, 24)
         if prompt then
@@ -1812,21 +1958,10 @@ local function startMeditatingAt(spotPos)
         end
     end
 
-    -- 3. Klik tombol Meditate di HUD yang terlihat
-    local clicked = clickVisibleGui({ "meditate", "meditasi" }, nil, { "stop", "close" })
-    if clicked then
-        task.wait(0.25)
-        if isCurrentlyMeditating() then return true end
-    end
-
-    -- 4. Coba remote MeditateEvent & Action yang ditemukan/bawaan
+    -- 5. Coba remote MeditateEvent & Action yang ditemukan/bawaan
     if Remotes.Meditate then
         fireRaw(Remotes.Meditate, true)
         task.wait(0.25)
-        if not isCurrentlyMeditating() then
-            fireRaw(Remotes.Meditate)
-            task.wait(0.25)
-        end
     end
 
     if not isCurrentlyMeditating() then
@@ -1834,8 +1969,6 @@ local function startMeditatingAt(spotPos)
             fireAction(actName, true)
         end
         fireAction("Meditate", true)
-        -- Beberapa game menggunakan tombol C atau M untuk meditasi
-        pressKey(Enum.KeyCode.C)
     end
 
     return isCurrentlyMeditating()
@@ -1843,12 +1976,25 @@ end
 
 local function stopMeditating()
     if not isCurrentlyMeditating() then return end
-    local clicked = clickVisibleGui({ "stop medit", "meditating", "meditate" })
+    local pg = getPlayerGui()
+    local hud = pg and pg:FindFirstChild("CultivationHud")
+    local action = hud and hud:FindFirstChild("Action")
+    if action then
+        local standBtn = action:FindFirstChild("Stand")
+        local hitStand = standBtn and standBtn:FindFirstChild("Hit")
+        if hitStand and isActuallyVisible(hitStand) then
+            triggerButton(hitStand)
+            task.wait(0.2)
+        end
+    end
+
+    local clicked = clickVisibleGui({ "stand", "berdiri", "stop medit", "meditating", "meditate" })
     if not clicked then
         if Remotes.Meditate then fireRaw(Remotes.Meditate, false) end
         fireAction("StopMeditate")
         fireAction("Meditate", false)
     end
+    pressKey(Enum.KeyCode.Space)
 end
 
 -- ═══════════════════════════════════════════
@@ -2216,6 +2362,67 @@ end
 -- ═══════════════════════════════════════════
 --  MAIN AUTO REBIRTH & MEDITATION LOOP
 -- ═══════════════════════════════════════════
+
+-- Cek apakah tombol Breakthrough (Disk dengan 破 atau tombol Rebirth) sudah aktif di HUD
+local function isBreakthroughReady()
+    local pg = getPlayerGui()
+    local hud = pg and pg:FindFirstChild("CultivationHud")
+    local action = hud and hud:FindFirstChild("Action")
+    if action then
+        -- 1. Cek tombol Disk (jika bertuliskan 破 atau Break)
+        local disk = action:FindFirstChild("Disk")
+        if disk and isActuallyVisible(disk) then
+            for _, d in ipairs(disk:GetDescendants()) do
+                if d:IsA("TextLabel") and d.Text ~= "" then
+                    if string.find(d.Text, "破", 1, true) or string.find(string.lower(d.Text), "break", 1, true) then
+                        return true
+                    end
+                end
+            end
+        end
+        -- 2. Cek tombol Rebirth di Action bar
+        local rb = action:FindFirstChild("Rebirth")
+        if rb and isActuallyVisible(rb) then
+            local hit = rb:FindFirstChild("Hit")
+            if hit and isActuallyVisible(hit) then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+-- Fast Auto-Clicker untuk Qi (klik tombol "氣" Disk secara kontinu saat meditasi agar Qi terus mengalir deras!)
+task.spawn(function()
+    while true do
+        if (State.AutoMeditate or State.AutoRebirth) and isCurrentlyMeditating() and not State.Locked then
+            pcall(function()
+                local pg = getPlayerGui()
+                local hud = pg and pg:FindFirstChild("CultivationHud")
+                local action = hud and hud:FindFirstChild("Action")
+                if action then
+                    local disk = action:FindFirstChild("Disk")
+                    local hitDisk = disk and disk:FindFirstChild("Hit")
+                    if hitDisk and isActuallyVisible(hitDisk) then
+                        triggerButton(hitDisk)
+                    end
+
+                    local autoBtn = action:FindFirstChild("AutoClick")
+                    local hitAuto = autoBtn and autoBtn:FindFirstChild("Hit")
+                    if hitAuto and isActuallyVisible(hitAuto) and not State.InGameAutoClickChecked then
+                        triggerButton(hitAuto)
+                        State.InGameAutoClickChecked = true
+                    end
+                end
+            end)
+            task.wait(0.12)
+        else
+            State.InGameAutoClickChecked = false
+            task.wait(0.4)
+        end
+    end
+end)
+
 local function autoRebirthLoop()
     if State.LoopRunning then return end
     State.LoopRunning = true
@@ -2232,7 +2439,8 @@ local function autoRebirthLoop()
             end
 
             local qi = State.Qi or 0
-            if qi >= State.QiThreshold then
+            local isReady = (qi >= State.QiThreshold) or isBreakthroughReady()
+            if isReady then
                 State.Step = "Terobosan / Breakthrough"
                 stopMeditating()
 
@@ -2260,7 +2468,7 @@ local function autoRebirthLoop()
                 if not isCurrentlyMeditating() then
                     startMeditatingAt(spotPos)
                 end
-                task.wait(1.5)
+                task.wait(1.0)
             end
         end)
 
@@ -2268,7 +2476,7 @@ local function autoRebirthLoop()
             log("AutoRebirth Error: " .. tostring(err))
             task.wait(2)
         end
-        task.wait(0.4)
+        task.wait(0.3)
     end
 
     State.LoopRunning = false
