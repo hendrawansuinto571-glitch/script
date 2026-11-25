@@ -1,7 +1,7 @@
 -- ╔══════════════════════════════════════════════════════════════╗
 -- ║      UNIONSAL SCRIPT HUB — Cultivation Legends (Obitel)      ║
--- ║   Auto Rebirth • Smart Sword Flight • Auto Herb & Cauldron    ║
--- ║   Sky Lantern Hunter • Talent Fast Gacha • World Teleport     ║
+-- ║   Auto Rebirth • Bagua Circle Cultivation • Smart Sword Fly  ║
+-- ║   Auto Herb & Cauldron • Talent Fast Gacha • World Teleport  ║
 -- ║      Design: Glass Bento Dark Purple (Unionsal Engine)        ║
 -- ╚══════════════════════════════════════════════════════════════╝
 
@@ -10,7 +10,9 @@ getgenv()._NEMESIS_CHILD_LOADED = true
 
 local SCRIPT_BASE_URL = "https://raw.githubusercontent.com/hendrawansuinto571-glitch/script/main/"
 
--- Load Unionsal UI Framework dari main.lua (Memory / File / GitHub)
+-- ═══════════════════════════════════════════
+--  LOAD UI FRAMEWORK (main.lua)
+-- ═══════════════════════════════════════════
 local Unionsal = getgenv().UnionsalHub or getgenv().NemesisHub
 if not Unionsal then
     local okLocal, resLocal = pcall(function()
@@ -38,79 +40,86 @@ local UserInputService     = game:GetService("UserInputService")
 local HttpService          = game:GetService("HttpService")
 local PathfindingService   = game:GetService("PathfindingService")
 local ReplicatedStorage    = game:GetService("ReplicatedStorage")
-local Lighting             = game:GetService("Lighting")
+local VirtualUser          = game:GetService("VirtualUser")
+local VirtualInputManager  = nil
+pcall(function() VirtualInputManager = game:GetService("VirtualInputManager") end)
 
 local LocalPlayer = Players.LocalPlayer
-local VirtualUser = game:GetService("VirtualUser")
 
 -- ═══════════════════════════════════════════
 --  KARAKTER HELPER
 -- ═══════════════════════════════════════════
 local function getCharacter()
-    return LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    local char = LocalPlayer.Character
+    if char and char.Parent then return char end
+    return nil
 end
+
 local function getHumanoid()
-    local c = LocalPlayer.Character
-    return c and c:FindFirstChildOfClass("Humanoid")
+    local char = getCharacter()
+    return char and char:FindFirstChildOfClass("Humanoid")
 end
+
 local function getRootPart()
-    local c = LocalPlayer.Character
-    return c and c:FindFirstChild("HumanoidRootPart")
+    local char = getCharacter()
+    return char and char:FindFirstChild("HumanoidRootPart")
+end
+
+local function getPlayerGui()
+    return LocalPlayer:FindFirstChildOfClass("PlayerGui")
 end
 
 -- ═══════════════════════════════════════════
---  STATE / CONFIG REGISTRY
+--  STATE REGISTRY
 -- ═══════════════════════════════════════════
 local State = {
-    -- Cultivation
+    -- Cultivation & Rebirth
     AutoRebirth        = false,
     AutoMeditate       = false,
-    AutoCauldron       = false,
-    AutoHerbFarm       = false,
+    AutoHerbFarm       = true,
+    AutoCauldron       = true,
     AutoDefend         = true,
-    RebirthMaxRealm    = 0,      -- 0 = tanpa batas
-    QiThreshold        = 99.5,
-    -- Movement
+    QiThreshold        = 99.0,
+    RebirthMaxRealm    = 0,
+    PreferredSpot      = "Auto (Bagua Circle)",
+
+    -- Movement / Sword Flight
     UseSwordFlight     = true,
-    SafeTravel         = true,   -- tween / smooth, bukan CFrame lompat
-    WalkSpeed          = 34,
-    FlySpeed           = 175,
-    NaturalHeight      = 28,
-    -- Event
+    SafeTravel         = true,
+    FlySpeed           = 185,
+    NaturalHeight      = 26,
+    WalkSpeed          = 32,
+
+    -- Event & Festival
     AutoLantern        = false,
     AutoShop           = false,
-    ShopItem           = "",
+    ShopItem           = "Sky Lantern Charm",
+
     -- Talent
     AutoGacha          = false,
     TargetTalent       = "",
     TalentTier         = "Mythic",
-    RollDelay          = 0.45,
+    RollDelay          = 0.35,
+
     -- Teleport
-    TeleportMode       = "Smooth Fly",
-    -- Runtime
+    TeleportMode       = "Smooth Fly (Aman)",
+    SelectedIsland     = "",
+    SelectedWorldSpot  = "",
+    ManualPos          = nil,
+
+    -- Runtime Status
     LoopRunning        = false,
-    Step               = "idle",
-    Realm              = "?",
+    Step               = "Siap",
+    Realm              = "Memuat...",
     RealmIndex         = 1,
     Qi                 = 0,
     Locked             = false,
+    LockDepth          = 0,
+    LastBaguaPos       = nil,
+    LastBaguaName      = "",
 }
 
 local LogBuffer = {}
-
--- Nama aksi remote (bisa dikalibrasi lewat tab Diagnostik bila berbeda)
-local ActionNames = {
-    Meditate   = "Meditate",
-    StopMeditate = "StopMeditate",
-    Harvest    = "Harvest",
-    Brew       = "Brew",
-    CraftPill  = "CraftPill",
-    Rebirth    = "Rebirth",
-    Breakthrough = "Breakthrough",
-    Defend     = "Defend",
-    CollectLantern = "CollectLantern",
-    RollTalent = "RollTalent",
-}
 
 local function log(msg)
     msg = tostring(msg)
@@ -132,20 +141,15 @@ local function clamp(n, lo, hi)
     return n
 end
 
-local function lerp(a, b, t)
-    return a + (b - a) * t
-end
-
 local function flat(v)
-    -- vektor tanpa komponen Y (menghindari tabrakan vertikal saat menghitung arah)
     return Vector3.new(v.X, 0, v.Z)
 end
 
 -- ═══════════════════════════════════════════
---  DISCOVERY: REMOTES / SHARED MODULES / KARAKTER MAP
+--  DISCOVERY & SHARED MODULES
 -- ═══════════════════════════════════════════
-local RemoteFolder   = ReplicatedStorage:FindFirstChild("Remotes")
-local SharedFolder   = ReplicatedStorage:FindFirstChild("Shared")
+local RemoteFolder = ReplicatedStorage:FindFirstChild("Remotes")
+local SharedFolder = ReplicatedStorage:FindFirstChild("Shared")
 
 local Remotes = {
     Action     = RemoteFolder and RemoteFolder:FindFirstChild("Action"),
@@ -157,10 +161,9 @@ local Remotes = {
 local ModuleCache = {}
 
 local function safeReq(name)
-    local cached = ModuleCache[name]
-    if cached ~= nil then
-        if cached == false then return nil end
-        return cached
+    if ModuleCache[name] ~= nil then
+        if ModuleCache[name] == false then return nil end
+        return ModuleCache[name]
     end
     local mod = SharedFolder and SharedFolder:FindFirstChild(name)
     if not mod then
@@ -180,7 +183,6 @@ end
 
 local unpackFn = table.unpack or unpack
 
--- Kirim aksi ke server (RemoteEvent / RemoteFunction) dengan aman
 local function fireRaw(remote, ...)
     if not remote then return false end
     local args = { ... }
@@ -199,96 +201,43 @@ local function fireRaw(remote, ...)
     return false
 end
 
-local function fireAction(a, ...)
-    if type(a) == "string" and ActionNames[a] and ActionNames[a] ~= "" then
-        a = ActionNames[a]
+local function fireAction(actionName, ...)
+    if not Remotes.Action then
+        Remotes.Action = RemoteFolder and RemoteFolder:FindFirstChild("Action")
     end
-    return fireRaw(Remotes.Action, a, ...)
+    return fireRaw(Remotes.Action, actionName, ...)
 end
 
--- Probe berantai: coba beberapa nama aksi, berhenti saat verify() true
-local function probeActions(candidates, verify, verifyDelay, totalTimeout)
-    verifyDelay = verifyDelay or 1.2
-    totalTimeout = totalTimeout or (#candidates * verifyDelay + 1)
-    local deadline = os.clock() + totalTimeout
-    for _, entry in ipairs(candidates) do
-        if os.clock() > deadline then break end
-        local a, b = entry[1], entry[2]
-        fireAction(a, b)
-        local okWatch = task.wait(verifyDelay)
-        if verify and verify() then
-            log("Aksi diterima: " .. tostring(a))
-            return true, a
-        end
-        if okWatch == nil then break end
-    end
-    return false, nil
-end
-
--- Klik tombol UI game berdasarkan teks (fallback ketika remote tidak diketahui)
+-- ═══════════════════════════════════════════
+--  UI CLICK & PROMPT TRIGGER
+-- ═══════════════════════════════════════════
 local OurGui = nil
 
-local function guiLabelOf(obj)
-    if obj:IsA("TextButton") and obj.Text ~= "" then return obj.Text end
-    local lbl = obj:FindFirstChildWhichIsA("TextLabel", true)
-    return lbl and lbl.Text or ""
-end
-
-local function clickGuiButton(keywords)
-    local pg = LocalPlayer:FindFirstChild("PlayerGui")
-    if not pg then return false end
-    for _, obj in ipairs(pg:GetDescendants()) do
-        if (obj:IsA("TextButton") or obj:IsA("ImageButton")) and obj.Visible then
-            if not (OurGui and obj:IsDescendantOf(OurGui)) then
-                local label = guiLabelOf(obj)
-                local low = string.lower(label)
-                if low ~= "" then
-                    for _, kw in ipairs(keywords) do
-                        if string.find(low, kw, 1, true) then
-                            pcall(function()
-                                obj:Activate()
-                            end)
-                            pcall(function()
-                                local vim = game:GetService("VirtualInputManager")
-                                local pos = obj.AbsolutePosition + obj.AbsoluteSize / 2
-                                vim:SendMouseButtonEvent(pos.X, pos.Y, 0, true, game, 0)
-                                task.wait(0.05)
-                                vim:SendMouseButtonEvent(pos.X, pos.Y, 0, false, game, 0)
-                            end)
-                            log("Klik UI: " .. label)
-                            return true
-                        end
-                    end
-                end
-            end
-        end
-    end
-    return false
-end
-
--- Pemicu ProximityPrompt (harvest / cauldron / NPC)
 local function usePrompt(prompt)
     if not prompt then return false end
     local ok = pcall(function()
         prompt:InputHoldBegin()
-        task.wait(math.min((prompt.HoldDuration or 0.1) + 0.05, 1.2))
+        task.wait(math.min((prompt.HoldDuration or 0.1) + 0.05, 1.0))
         prompt:InputHoldEnd()
     end)
     if not ok then
-        ok = pcall(function()
-            fireProximityPrompt(prompt, prompt.ActionText)
+        pcall(function()
+            if fireProximityPrompt then
+                fireProximityPrompt(prompt, prompt.ActionText)
+            end
         end)
     end
     return ok
 end
 
 local function findPromptNear(pos, radius)
-    local best, bestDist = nil, radius or 30
+    local best, bestDist = nil, radius or 25
     for _, obj in ipairs(workspace:GetDescendants()) do
         if obj:IsA("ProximityPrompt") then
-            local parentPart = obj.Parent
-            if parentPart and parentPart:IsA("BasePart") then
-                local d = (parentPart.Position - pos).Magnitude
+            local p = obj.Parent
+            local part = p and (p:IsA("BasePart") and p or p:FindFirstChildWhichIsA("BasePart"))
+            if part then
+                local d = (part.Position - pos).Magnitude
                 if d < bestDist then
                     bestDist = d
                     best = obj
@@ -299,24 +248,50 @@ local function findPromptNear(pos, radius)
     return best, bestDist
 end
 
+-- Klik tombol UI game (mendukung TextButton & ImageButton berdasarkan text atau name)
+local function clickGui(keywords)
+    local pg = getPlayerGui()
+    if not pg then return false end
+
+    for _, obj in ipairs(pg:GetDescendants()) do
+        if (obj:IsA("TextButton") or obj:IsA("ImageButton")) then
+            if not (OurGui and obj:IsDescendantOf(OurGui)) then
+                local label = ""
+                if obj:IsA("TextButton") and obj.Text ~= "" then
+                    label = obj.Text
+                else
+                    local sub = obj:FindFirstChildWhichIsA("TextLabel", true)
+                    label = sub and sub.Text or obj.Name
+                end
+                local low = string.lower(label)
+                local lowName = string.lower(obj.Name)
+
+                for _, kw in ipairs(keywords) do
+                    local kwLow = string.lower(kw)
+                    if string.find(low, kwLow, 1, true) or string.find(lowName, kwLow, 1, true) then
+                        pcall(function() obj:Activate() end)
+                        if VirtualInputManager and obj.AbsolutePosition then
+                            pcall(function()
+                                local pos = obj.AbsolutePosition + obj.AbsoluteSize / 2
+                                VirtualInputManager:SendMouseButtonEvent(pos.X, pos.Y, 0, true, game, 0)
+                                task.wait(0.04)
+                                VirtualInputManager:SendMouseButtonEvent(pos.X, pos.Y, 0, false, game, 0)
+                            end)
+                        end
+                        return true
+                    end
+                end
+            end
+        end
+    end
+    return false
+end
+
 -- ═══════════════════════════════════════════
---  DATA REALM (ReplicatedStorage.Shared.Realms)
+--  REALM & QI SYSTEM
 -- ═══════════════════════════════════════════
 local RealmList = {}
 local RealmByName = {}
-
-local function numberField(t, keys)
-    if type(t) ~= "table" then return nil end
-    for _, k in ipairs(keys) do
-        local v = t[k]
-        if type(v) == "number" then return v end
-    end
-    return nil
-end
-
-local function maxQiOf(t)
-    return numberField(t, { "Qi", "QiMax", "MaxQi", "RequiredQi", "QiRequired", "Cost", "Threshold" })
-end
 
 local function buildRealmList()
     RealmList = {}
@@ -328,12 +303,12 @@ local function buildRealmList()
     if #data > 0 then
         for i, v in ipairs(data) do
             if type(v) == "string" then
-                table.insert(entries, { name = v, order = i, qi = nil })
+                table.insert(entries, { name = v, order = i, maxQi = nil })
             elseif type(v) == "table" then
                 table.insert(entries, {
-                    name = v.Name or v.name or v.Title or ("Realm " .. i),
-                    order = numberField(v, { "Order", "Index", "Level", "Tier", "Stage" }) or i,
-                    qi = maxQiOf(v),
+                    name = v.Name or v.Title or ("Realm " .. i),
+                    order = v.Order or v.Tier or v.Level or i,
+                    maxQi = v.Qi or v.MaxQi or v.RequiredQi or v.Cost,
                 })
             end
         end
@@ -343,111 +318,67 @@ local function buildRealmList()
                 if type(v) == "table" then
                     table.insert(entries, {
                         name = v.Name or k,
-                        order = numberField(v, { "Order", "Index", "Level", "Tier", "Stage" }) or numberField(v, { "Qi", "QiMax" }) or 0,
-                        qi = maxQiOf(v),
+                        order = v.Order or v.Tier or v.Level or 0,
+                        maxQi = v.Qi or v.MaxQi or v.RequiredQi or v.Cost,
                     })
                 elseif type(v) == "number" then
-                    table.insert(entries, { name = k, order = v, qi = v })
-                else
-                    table.insert(entries, { name = k, order = 0, qi = nil })
+                    table.insert(entries, { name = k, order = v, maxQi = v })
                 end
             end
         end
     end
 
-    table.sort(entries, function(a, b)
-        if a.order == b.order then return a.name < b.name end
-        return a.order < b.order
-    end)
-
+    table.sort(entries, function(a, b) return a.order < b.order end)
     for i, e in ipairs(entries) do
-        RealmList[i] = { Name = e.name, MaxQi = e.qi, Index = i }
+        RealmList[i] = { Name = e.name, MaxQi = e.maxQi, Index = i }
         RealmByName[string.lower(e.name)] = i
     end
 end
 
-local function realmIndexFromText(text)
-    if type(text) ~= "string" then return nil end
-    local low = string.lower(text)
-    if RealmByName[low] then return RealmByName[low] end
-    for i, r in ipairs(RealmList) do
-        if string.find(low, string.lower(r.Name), 1, true) then
-            return i
+local function attrOf(names)
+    local targets = { LocalPlayer, LocalPlayer.Character }
+    for _, t in ipairs(targets) do
+        if t then
+            for _, n in ipairs(names) do
+                local ok, v = pcall(function() return t:GetAttribute(n) end)
+                if ok and v ~= nil then return v end
+            end
+        end
+    end
+    local ls = LocalPlayer:FindFirstChild("leaderstats")
+    if ls then
+        for _, n in ipairs(names) do
+            local v = ls:FindFirstChild(n)
+            if v and (v:IsA("IntValue") or v:IsA("NumberValue") or v:IsA("StringValue")) then
+                return v.Value
+            end
         end
     end
     return nil
 end
 
--- ═══════════════════════════════════════════
---  READER: REALM & QI PEMAIN
--- ═══════════════════════════════════════════
-local REALM_ATTRS = { "Realm", "realm", "RealmName", "CultivationRealm", "Rank", "Stage", "RealmIndex" }
-local QI_ATTRS = { "Qi", "qi", "QiProgress", "CultivationProgress", "Cultivation", "Progress", "Exp", "XP" }
-local PILL_ATTRS = { "BreakthroughPill", "Pill", "Elixir", "BreakthroughElixir" }
-
-local function attrOf(names)
-    local targets = { LocalPlayer }
-    local ch = LocalPlayer.Character
-    if ch then table.insert(targets, ch) end
-    for _, t in ipairs(targets) do
-        for _, n in ipairs(names) do
-            local ok, v = pcall(function()
-                return t:GetAttribute(n)
-            end)
-            if ok and v ~= nil then return v, n end
-        end
-    end
-    local stats = LocalPlayer:FindFirstChild("leaderstats")
-    if stats then
-        for _, n in ipairs(names) do
-            local v = stats:FindFirstChild(n)
-            if v and (v:IsA("IntValue") or v:IsA("NumberValue")) then
-                return v.Value, n
-            end
-        end
-    end
-    return nil, nil
-end
-
 local function scanHudQi()
-    local pg = LocalPlayer:FindFirstChild("PlayerGui")
+    local pg = getPlayerGui()
     if not pg then return nil end
-    local best, bestScore = nil, 0
     for _, d in ipairs(pg:GetDescendants()) do
-        if d:IsA("TextLabel") then
+        if d:IsA("TextLabel") and d.Visible then
             local num = tonumber(string.match(d.Text, "(%d+%.?%d*)%s*%%"))
-            if num then
-                local score = 1
-                local node = d
-                for _ = 1, 4 do
-                    if node.Parent then
-                        local low = string.lower(node.Name)
-                        if string.find(low, "qi") or string.find(low, "prog") or string.find(low, "cultiv") then
-                            score = score + 3
-                        end
-                        node = node.Parent
-                    end
-                end
-                if score >= bestScore then
-                    bestScore = score
-                    best = num
-                end
-            end
+            if num then return num end
         end
     end
-    return best
+    return nil
 end
 
 local function readQiPercent()
-    local raw = attrOf(QI_ATTRS)
+    local raw = attrOf({ "QiProgress", "CultivationProgress", "Qi", "Progress", "Cultivation" })
     if type(raw) == "number" then
+        if raw > 0 and raw <= 1 then return clamp(raw * 100, 0, 100) end
+        if raw > 1 and raw <= 100 then return clamp(raw, 0, 100) end
         local idx = State.RealmIndex or 1
         local maxQi = RealmList[idx] and RealmList[idx].MaxQi
         if maxQi and maxQi > 0 then
             return clamp((raw / maxQi) * 100, 0, 100)
         end
-        if raw > 0 and raw <= 1 then return clamp(raw * 100, 0, 100) end
-        return clamp(raw, 0, 100)
     end
     local hud = scanHudQi()
     if hud then return clamp(hud, 0, 100) end
@@ -455,1234 +386,851 @@ local function readQiPercent()
 end
 
 local function refreshPlayerState()
-    local realmText = attrOf(REALM_ATTRS)
-    if type(realmText) == "number" then
-        State.RealmIndex = clamp(math.floor(realmText), 1, math.max(#RealmList, 1))
-        State.Realm = RealmList[State.RealmIndex] and RealmList[State.RealmIndex].Name or tostring(realmText)
-    elseif type(realmText) == "string" then
-        local idx = realmIndexFromText(realmText)
-        State.RealmIndex = idx or State.RealmIndex
+    local realmText = attrOf({ "Realm", "RealmName", "CultivationRealm", "Rank", "Stage" })
+    if type(realmText) == "string" and realmText ~= "" then
         State.Realm = realmText
+        local idx = RealmByName[string.lower(realmText)]
+        if idx then State.RealmIndex = idx end
+    elseif type(realmText) == "number" then
+        State.RealmIndex = clamp(math.floor(realmText), 1, math.max(#RealmList, 1))
+        State.Realm = RealmList[State.RealmIndex] and RealmList[State.RealmIndex].Name or ("Realm " .. State.RealmIndex)
     elseif #RealmList > 0 then
         State.Realm = RealmList[State.RealmIndex] and RealmList[State.RealmIndex].Name or State.Realm
     else
-        State.Realm = State.Realm ~= "?" and State.Realm or "Tidak terbaca"
+        State.Realm = State.Realm ~= "Memuat..." and State.Realm or "Kultivator"
     end
     State.Qi = readQiPercent()
     return State.Realm, State.Qi
 end
 
 -- ═══════════════════════════════════════════
---  READER: INVENTORY / RESEP / PIL
+--  DETEKSI SPOT KULTIVASI / BAGUA CIRCLE (SESUAI FOTO)
 -- ═══════════════════════════════════════════
-local function normalizeName(n)
-    return string.lower(tostring(n)):gsub("%s+", "")
-end
-
-local function countItem(itemName)
-    if not itemName or itemName == "" then return 0 end
-    local target = normalizeName(itemName)
-    local total = 0
-    local containers = { LocalPlayer:FindFirstChild("Backpack"), LocalPlayer.Character }
-    for _, c in ipairs(containers) do
-        if c then
-            for _, obj in ipairs(c:GetChildren()) do
-                if obj:IsA("Tool") and string.find(normalizeName(obj.Name), target, 1, true) then
-                    total = total + 1
-                end
-            end
-        end
-    end
-    local attr, _ = attrOf({ itemName })
-    if type(attr) == "number" then total = math.max(total, attr) end
-    return total
-end
-
-local function countPill()
-    for _, n in ipairs(PILL_ATTRS) do
-        local v = attrOf({ n })
-        if type(v) == "number" then return v end
-    end
-    for _, candidate in ipairs({ "Breakthrough Pill", "Breakthrough Elixir", "Terobosan", "Pil Terobosan" }) do
-        local c = countItem(candidate)
-        if c > 0 then return c end
-    end
-    return 0
-end
-
-local Recipes = {}
-
-local function buildRecipes()
-    Recipes = {}
-    local alch = safeReq("Alchemy")
-    if not alch then return end
-    local function collectIngredients(entry)
-        local list = {}
-        for _, key in ipairs({ "Ingredients", "Items", "Reagents", "Materials", "Recipe", "Ingredient" }) do
-            local v = entry[key]
-            if type(v) == "table" then
-                for k, val in pairs(v) do
-                    if type(k) == "string" then
-                        table.insert(list, { Name = k, Count = type(val) == "number" and val or 1 })
-                    elseif type(val) == "string" then
-                        table.insert(list, { Name = val, Count = 1 })
-                    elseif type(val) == "table" then
-                        table.insert(list, { Name = val.Name or val.name or val.Item or "?", Count = tonumber(val.Count or val.Amount) or 1 })
-                    end
-                end
-            end
-        end
-        return list
-    end
-    for k, v in pairs(alch) do
-        if type(v) == "table" then
-            local ings = collectIngredients(v)
-            if #ings > 0 then
-                table.insert(Recipes, { Name = v.Name or v.Pill or tostring(k), Ingredients = ings, Result = v.Result or v.Output or v.Name })
-            end
-        end
-    end
-end
-
-local function recipeForRealm(index)
-    if #Recipes == 0 then return nil end
-    return Recipes[((index - 1) % #Recipes) + 1]
-end
-
-local function ingredientsReady(recipe)
-    if not recipe then return false end
-    for _, ing in ipairs(recipe.Ingredients) do
-        if countItem(ing.Name) < ing.Count then return false end
-    end
-    return true
-end
-
--- ═══════════════════════════════════════════
---  WORLD LOOKUP (pulau, NPC, cauldron, lotus, herbal)
--- ═══════════════════════════════════════════
-local function isValidPart(p)
-    return p and p:IsA("BasePart")
-end
-
 local function partOf(obj)
     if not obj then return nil end
     if obj:IsA("BasePart") then return obj end
     return obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChildWhichIsA("BasePart")
 end
 
-local function findFirstByNames(names, parent, deep)
-    parent = parent or workspace
-    local lowSet = {}
-    for _, n in ipairs(names) do
-        lowSet[string.lower(n)] = true
-    end
-    local list = deep and parent:GetDescendants() or parent:GetChildren()
-    local function matches(low)
-        if lowSet[low] then return true end
-        for key in pairs(lowSet) do
-            if string.find(low, key, 1, true) then return true end
-        end
-        return false
-    end
-    for _, obj in ipairs(list) do
-        if matches(string.lower(obj.Name)) then
-            local p = partOf(obj)
-            if p then return obj, p end
-        end
-    end
-    return nil, nil
-end
+-- Mencari Bagua Circle / Qi Gathering spot yang persis seperti pada foto pengguna
+local function findBaguaCircles()
+    local spots = {}
 
-local function findByKeyword(keywords, minSize)
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("BasePart") then
-            local low = string.lower(obj.Name)
-            for _, kw in ipairs(keywords) do
-                if string.find(low, kw, 1, true) then
-                    if not minSize or (obj.Size.X + obj.Size.Y + obj.Size.Z) > minSize then
-                        return obj
+    -- 1. Scan BillboardGui dengan teks "Qi Gathering", "Bagua", "Court", dsb.
+    for _, bb in ipairs(workspace:GetDescendants()) do
+        if bb:IsA("BillboardGui") then
+            local textAll = ""
+            for _, lbl in ipairs(bb:GetDescendants()) do
+                if lbl:IsA("TextLabel") then
+                    textAll = textAll .. " " .. lbl.Text
+                end
+            end
+            local low = string.lower(textAll)
+            if string.find(low, "qi gathering", 1, true) or string.find(low, "bagua", 1, true) or string.find(low, "circle", 1, true) then
+                local hostPart = bb.Parent and partOf(bb.Parent)
+                if hostPart then
+                    local title = "Bagua Circle"
+                    for _, lbl in ipairs(bb:GetDescendants()) do
+                        if lbl:IsA("TextLabel") and string.find(string.lower(lbl.Text), "bagua", 1, true) then
+                            title = lbl.Text
+                            break
+                        end
                     end
+                    table.insert(spots, {
+                        Name = title,
+                        Position = hostPart.Position,
+                        Part = hostPart,
+                        Multiplier = tonumber(string.match(low, "x(%d+)%s*qi")) or 3,
+                    })
                 end
             end
         end
     end
-    return nil
-end
 
-local function myIsland()
-    local obitel = workspace:FindFirstChild("Obitel")
-    local islands = obitel and obitel:FindFirstChild("Islands")
-    if not islands then return nil end
-    local target = "Island_" .. tostring(LocalPlayer.UserId)
-    return islands:FindFirstChild(target)
-end
-
-local function elderYun()
-    local obitel = workspace:FindFirstChild("Obitel")
-    return obitel and obitel:FindFirstChild("ElderYun")
-end
-
-local function groundY(pos)
-    local params = RaycastParams.new()
-    params.FilterType = Enum.RaycastFilterType.Exclude
-    local ch = LocalPlayer.Character
-    params.FilterDescendantsInstances = ch and { ch } or {}
-    local result = workspace:Raycast(pos + Vector3.new(0, 200, 0), Vector3.new(0, -500, 0), params)
-    if result then return result.Position.Y end
-    return pos.Y
-end
-
-local function safeStandPosition(pos, height)
-    return Vector3.new(pos.X, groundY(pos) + (height or 4), pos.Z)
-end
-
--- ═══════════════════════════════════════════
---  TRAVEL: SWORD FLIGHT & PATHFINDING WALK
--- ═══════════════════════════════════════════
-local Travel = {
-    Flying     = false,
-    Velocity   = nil,
-    Gyro       = nil,
-    Cancelled  = false,
-    SwordOwned = false,
-    SwordCheck = 0,
-}
-
-local SWORD_HINTS = { "sword", "pedang", "flying", "fly" }
-
-local function hasFlyingSword()
-    if os.clock() - Travel.SwordCheck < 5 then
-        return Travel.SwordOwned
-    end
-    Travel.SwordCheck = os.clock()
-    Travel.SwordOwned = false
-
-    local data = safeReq("FlyingSword")
-    if data then
-        for k, v in pairs(data) do
-            if type(k) == "string" and string.find(string.lower(k), "name") and type(v) == "string" then
-                table.insert(SWORD_HINTS, string.lower(v))
-            end
-            if type(v) == "string" then
-                table.insert(SWORD_HINTS, string.lower(v))
-            end
-        end
-    end
-
-    local containers = { LocalPlayer:FindFirstChild("Backpack"), LocalPlayer.Character }
-    for _, c in ipairs(containers) do
-        if c then
-            for _, obj in ipairs(c:GetChildren()) do
-                if obj:IsA("Tool") then
-                    local low = string.lower(obj.Name)
-                    for _, hint in ipairs(SWORD_HINTS) do
-                        if string.find(low, hint, 1, true) then
-                            Travel.SwordOwned = true
-                            return true
+    -- 2. Scan Model / BasePart yang dinamai Bagua / Circle / QiGathering / Altar
+    if #spots == 0 then
+        local keywords = { "bagua", "qigathering", "outer court", "inner court", "qicircle", "meditationspot" }
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            if obj:IsA("Model") or obj:IsA("BasePart") then
+                local low = string.lower(obj.Name)
+                for _, kw in ipairs(keywords) do
+                    if string.find(low, kw, 1, true) then
+                        local p = partOf(obj)
+                        if p then
+                            table.insert(spots, {
+                                Name = obj.Name,
+                                Position = p.Position,
+                                Part = p,
+                                Multiplier = 3,
+                            })
+                            break
                         end
                     end
                 end
             end
         end
     end
-    local flag = attrOf({ "HasFlyingSword", "FlyingSword", "SwordFlight" })
-    if flag == true or type(flag) == "string" then
-        Travel.SwordOwned = true
-    end
-    return Travel.SwordOwned
+
+    return spots
 end
 
-local function stopBodyMovers()
-    if Travel.Velocity then
-        pcall(function() Travel.Velocity:Destroy() end)
-        Travel.Velocity = nil
+local function getBestCultivationSpot()
+    local circles = findBaguaCircles()
+    if #circles > 0 then
+        -- Pilih spot dengan multiplier terbaik atau terdekat
+        table.sort(circles, function(a, b) return (a.Multiplier or 1) > (b.Multiplier or 1) end)
+        State.LastBaguaPos = circles[1].Position
+        State.LastBaguaName = circles[1].Name
+        return circles[1].Position, circles[1].Name
     end
-    if Travel.Gyro then
-        pcall(function() Travel.Gyro:Destroy() end)
-        Travel.Gyro = nil
+
+    -- Fallback ke pulau pribadi
+    local obitel = workspace:FindFirstChild("Obitel")
+    local islands = obitel and obitel:FindFirstChild("Islands")
+    local myIs = islands and islands:FindFirstChild("Island_" .. tostring(LocalPlayer.UserId))
+    if myIs then
+        local p = partOf(myIs)
+        if p then return p.Position, "Pulau Pribadi (Island_" .. LocalPlayer.UserId .. ")" end
+    end
+
+    return nil, nil
+end
+
+-- ═══════════════════════════════════════════
+--  SMART SWORD FLIGHT & NATURAL TRAVEL
+-- ═══════════════════════════════════════════
+local Flight = {
+    Active    = false,
+    Velocity  = nil,
+    Gyro      = nil,
+    Cancelled = false,
+}
+
+local function groundY(pos)
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    local ch = LocalPlayer.Character
+    params.FilterDescendantsInstances = ch and { ch } or {}
+    local result = workspace:Raycast(pos + Vector3.new(0, 150, 0), Vector3.new(0, -400, 0), params)
+    if result then return result.Position.Y end
+    return pos.Y
+end
+
+local function activateSword()
+    -- Aktifkan mode pedang lewat remote resmi game
+    if Remotes.SwordMode then
+        fireRaw(Remotes.SwordMode, true)
+    end
+
+    -- Trigger BindableEvent SwordToggle bila ada
+    local ps = LocalPlayer:FindFirstChild("PlayerScripts")
+    local clientFolder = ps and ps:FindFirstChild("Client")
+    local sf = clientFolder and clientFolder:FindFirstChild("SwordFlight")
+    local st = sf and sf:FindFirstChild("SwordToggle")
+    if st and st:IsA("BindableEvent") then
+        pcall(function() st:Fire(true) end)
+    end
+
+    -- Equip pedang dari Backpack bila berupa Tool
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    local ch = LocalPlayer.Character
+    if bp and ch then
+        for _, t in ipairs(bp:GetChildren()) do
+            if t:IsA("Tool") and string.find(string.lower(t.Name), "sword", 1, true) then
+                pcall(function() t.Parent = ch end)
+                break
+            end
+        end
     end
 end
 
-local function endFlight()
-    if not Travel.Flying then return end
-    Travel.Flying = false
-    pcall(function()
+local function deactivateSword()
+    if Remotes.SwordMode then
         fireRaw(Remotes.SwordMode, false)
-    end)
+    end
+    local ps = LocalPlayer:FindFirstChild("PlayerScripts")
+    local clientFolder = ps and ps:FindFirstChild("Client")
+    local sf = clientFolder and clientFolder:FindFirstChild("SwordFlight")
+    local st = sf and sf:FindFirstChild("SwordToggle")
+    if st and st:IsA("BindableEvent") then
+        pcall(function() st:Fire(false) end)
+    end
+end
+
+local function stopFlight()
+    if Flight.Velocity then
+        pcall(function() Flight.Velocity:Destroy() end)
+        Flight.Velocity = nil
+    end
+    if Flight.Gyro then
+        pcall(function() Flight.Gyro:Destroy() end)
+        Flight.Gyro = nil
+    end
+    Flight.Active = false
+    deactivateSword()
+
     local hum = getHumanoid()
     if hum then
-        pcall(function()
-            hum:ChangeState(Enum.HumanoidStateType.Freefall)
-        end)
+        pcall(function() hum:ChangeState(Enum.HumanoidStateType.Freefall) end)
     end
-    task.wait(0.15)
-    stopBodyMovers()
 end
 
-local function ensureFlight()
-    if Travel.Flying and Travel.Velocity and Travel.Gyro then return true end
-    Travel.Flying = false
-    local root, hum = getRootPart(), getHumanoid()
-    if not root or not hum then return false end
-    if not hasFlyingSword() then return false end
+local function startFlight()
+    if Flight.Active and Flight.Velocity and Flight.Gyro then return true end
+    stopFlight()
 
-    pcall(function()
-        fireRaw(Remotes.SwordMode, true)
-    end)
-    task.wait(0.25)
-    if not getRootPart() then return false end
+    local root = getRootPart()
+    local hum = getHumanoid()
+    if not root or not hum then return false end
+
+    activateSword()
+    task.wait(0.15)
     root = getRootPart()
+    if not root then return false end
 
     local bv = Instance.new("BodyVelocity")
-    bv.Name = "CL_FlyVelocity"
-    bv.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+    bv.Name = "CL_FlightVelocity"
+    bv.MaxForce = Vector3.new(2e5, 2e5, 2e5)
     bv.Velocity = Vector3.zero
-    bv.P = 3000
+    bv.P = 4000
     bv.Parent = root
 
     local bg = Instance.new("BodyGyro")
-    bg.Name = "CL_FlyGyro"
-    bg.MaxTorque = Vector3.new(4e4, 4e4, 4e4)
-    bg.P = 3000
-    bg.D = 200
+    bg.Name = "CL_FlightGyro"
+    bg.MaxTorque = Vector3.new(8e4, 8e4, 8e4)
+    bg.P = 4000
+    bg.D = 250
     bg.CFrame = root.CFrame
     bg.Parent = root
 
-    Travel.Velocity = bv
-    Travel.Gyro = bg
-    Travel.Flying = true
+    Flight.Velocity = bv
+    Flight.Gyro = bg
+    Flight.Active = true
     return true
 end
 
--- Terbang mulus mengikuti waypoint (aman & natural, tanpa lompatan CFrame)
+-- Terbang alami menggunakan pedang menuju koordinat target
 local function flyTo(targetPos, arriveDist)
     arriveDist = arriveDist or 7
-    Travel.Cancelled = false
-    if not ensureFlight() then return false end
+    Flight.Cancelled = false
 
+    if not startFlight() then return false end
     local root = getRootPart()
     if not root then return false end
 
     local startPos = root.Position
     local totalDist = (targetPos - startPos).Magnitude
-    local groundTarget = groundY(targetPos)
-    local cruiseY = math.max(startPos.Y, groundTarget) + State.NaturalHeight
-    local waypoints = {}
-    local steps = clamp(math.ceil(totalDist / 110), 1, 24)
+    local groundEnd = groundY(targetPos)
+    local cruiseY = math.max(startPos.Y, groundEnd) + State.NaturalHeight
 
+    local steps = clamp(math.ceil(totalDist / 90), 1, 20)
+    local waypoints = {}
     for i = 1, steps do
         local t = i / (steps + 1)
         local p = startPos:Lerp(targetPos, t)
-        local wobble = math.sin(i * 1.7) * 5 + math.random(-3, 3)
-        table.insert(waypoints, Vector3.new(p.X, cruiseY + wobble, p.Z))
+        table.insert(waypoints, Vector3.new(p.X, cruiseY, p.Z))
     end
-    table.insert(waypoints, safeStandPosition(targetPos, 6))
+    table.insert(waypoints, Vector3.new(targetPos.X, groundEnd + 3.5, targetPos.Z))
 
-    local speed = clamp(State.FlySpeed, 40, 600)
+    local speed = clamp(State.FlySpeed, 50, 450)
     local hum = getHumanoid()
 
-    for wIndex, wp in ipairs(waypoints) do
-        if Travel.Cancelled then break end
-        if not getRootPart() then break end
+    for wIdx, wp in ipairs(waypoints) do
+        if Flight.Cancelled then break end
+        root = getRootPart()
+        if not root then break end
+
         local wStart = os.clock()
-        local lastPos = getRootPart().Position
-        local stuck = 0
         while true do
-            if Travel.Cancelled then break end
+            if Flight.Cancelled then break end
             root = getRootPart()
             if not root then break end
+
             local pos = root.Position
             local delta = wp - pos
             local dist = delta.Magnitude
-            if dist <= (wIndex == #waypoints and arriveDist or 9) then break end
-
-            if os.clock() - wStart > math.max(6, (dist / speed) * 6) then break end
-            if (pos - lastPos).Magnitude < 0.4 then
-                stuck = stuck + 1
-                if stuck > 90 then break end
-            else
-                stuck = 0
-            end
-            lastPos = pos
+            if dist <= (wIdx == #waypoints and arriveDist or 10) then break end
+            if os.clock() - wStart > math.max(5, (dist / speed) * 5) then break end
 
             local dir = delta.Unit
-            if wIndex < #waypoints then
-                local minY = groundY(pos) + State.NaturalHeight * 0.55
-                if pos.Y < minY then dir = (dir + Vector3.new(0, 0.9, 0)).Unit end
+            local ramp = clamp(dist * 2.2, 30, speed)
+
+            if Flight.Velocity and Flight.Gyro then
+                Flight.Velocity.Velocity = dir * ramp
+                Flight.Gyro.CFrame = CFrame.lookAt(pos, pos + flat(delta) + Vector3.new(0, delta.Y * 0.2, 0))
+            else
+                startFlight()
             end
 
-            local ramp = clamp(dist * 2, 25, speed)
-            if not Travel.Velocity or not Travel.Gyro then
-                stopBodyMovers()
-                if not ensureFlight() then break end
-            end
-            Travel.Velocity.Velocity = dir * ramp
-            Travel.Gyro.CFrame = CFrame.lookAt(pos, pos + flat(delta) + Vector3.new(0, delta.Y * 0.25, 0))
             if hum then
-                pcall(function()
-                    hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                end)
+                pcall(function() hum:ChangeState(Enum.HumanoidStateType.Freefall) end)
             end
-            task.wait(0.05)
+            task.wait(0.04)
         end
     end
 
-    if Travel.Velocity then
-        Travel.Velocity.Velocity = Vector3.zero
+    if Flight.Velocity then
+        Flight.Velocity.Velocity = Vector3.zero
     end
-    task.wait(0.25)
+    task.wait(0.2)
     return true
 end
 
--- Jalan kaki natural via PathfindingService
+-- Jalan kaki fallback via Pathfinding
 local function walkTo(targetPos, arriveDist)
     arriveDist = arriveDist or 6
-    Travel.Cancelled = false
-    local hum, root = getHumanoid(), getRootPart()
+    local hum = getHumanoid()
+    local root = getRootPart()
     if not hum or not root then return false end
 
     hum.WalkSpeed = State.WalkSpeed
-    local path = PathfindingService:CreatePath({
-        AgentRadius = 2.5,
-        AgentHeight = 5,
-        AgentCanJump = true,
-        WaypointSpacing = 8,
-    })
-
-    local okPath = pcall(function()
-        path:ComputeAsync(root.Position, targetPos)
-    end)
-    local waypoints
-    if okPath and path.Status == Enum.PathStatus.Success then
-        waypoints = path:GetWaypoints()
-    else
-        waypoints = {
-            { Position = targetPos, Action = Enum.PathWaypointAction.Jump },
-        }
-    end
+    local path = PathfindingService:CreatePath({ AgentRadius = 2.5, AgentHeight = 5, AgentCanJump = true })
+    local ok = pcall(function() path:ComputeAsync(root.Position, targetPos) end)
+    local waypoints = (ok and path.Status == Enum.PathStatus.Success) and path:GetWaypoints() or { { Position = targetPos } }
 
     for _, wp in ipairs(waypoints) do
-        if Travel.Cancelled then break end
-        local r = getRootPart()
-        if not r then break end
-        if wp.Action == Enum.PathWaypointAction.Jump then
-            pcall(function() hum.Jump = true end)
-        end
-        pcall(function()
-            hum:MoveTo(wp.Position)
-        end)
-        local startT = os.clock()
-        while true do
-            if Travel.Cancelled then break end
-            r = getRootPart()
-            if not r then break end
-            if (r.Position - wp.Position).Magnitude <= 4 then break end
-            if os.clock() - startT > 8 then break end
-            task.wait(0.12)
+        root = getRootPart()
+        if not root then break end
+        pcall(function() hum:MoveTo(wp.Position) end)
+        local t0 = os.clock()
+        while (root.Position - wp.Position).Magnitude > 4.5 and os.clock() - t0 < 6 do
+            task.wait(0.1)
+            root = getRootPart()
+            if not root then break end
         end
     end
-
-    pcall(function()
-        hum:MoveTo(targetPos)
-    end)
-    local t0 = os.clock()
-    while os.clock() - t0 < 3 do
-        local r = getRootPart()
-        if not r or (r.Position - targetPos).Magnitude <= arriveDist then break end
-        if Travel.Cancelled then break end
-        task.wait(0.15)
-    end
-    pcall(function() hum:MoveTo(root.Position) end)
-    hum.WalkSpeed = State.WalkSpeed
     return true
 end
 
--- Titik akhir selalu di atas permukaan tanah
-local function travelTo(targetPos, opts)
-    opts = opts or {}
-    State.LockDepth = (State.LockDepth or 0) + 1
+-- Menuju lokasi (otomatis pakai Sword Flight jika diaktifkan)
+local function travelTo(targetPos, label, arriveDist)
     State.Locked = true
     local prevStep = State.Step
-    State.Step = "travel ke " .. (opts.Label or "tujuan")
+    State.Step = "Menuju " .. (label or "tujuan")
+    log("Perjalanan ke: " .. tostring(label))
+
     local ok = false
-
-    local okRun, err = pcall(function()
-        local root = getRootPart()
-        if not root then return end
-        local stand = safeStandPosition(targetPos, opts.Height or 5)
-        if State.UseSwordFlight and hasFlyingSword() and (root.Position - stand).Magnitude > 22 then
-            ok = flyTo(Vector3.new(targetPos.X, groundY(targetPos), targetPos.Z), opts.Arrive)
-            if not ok then
-                ok = walkTo(stand, opts.Arrive)
-            end
+    local root = getRootPart()
+    if root then
+        local dist = (root.Position - targetPos).Magnitude
+        if State.UseSwordFlight and dist > 18 then
+            ok = flyTo(targetPos, arriveDist or 6)
+            if not ok then ok = walkTo(targetPos, arriveDist or 6) end
         else
-            ok = walkTo(stand, opts.Arrive)
+            ok = walkTo(targetPos, arriveDist or 6)
         end
-    end)
-    if not okRun then
-        log("Travel error: " .. tostring(err))
     end
 
-    pcall(function()
-        if Travel.Flying then endFlight() end
-    end)
-    State.LockDepth = math.max((State.LockDepth or 1) - 1, 0)
-    if State.LockDepth == 0 then
-        State.Locked = false
-        State.Step = prevStep or "idle"
-    end
+    stopFlight()
+    State.Locked = false
+    State.Step = prevStep or "Siap"
     return ok
 end
 
 local function instantTeleport(targetPos)
     local root = getRootPart()
     if not root then return false end
-    if Travel.Flying then endFlight() end
-    local stand = safeStandPosition(targetPos, 5)
-    pcall(function()
-        root.CFrame = CFrame.new(stand)
-    end)
-    local hum = getHumanoid()
-    if hum then
-        pcall(function() hum:ChangeState(Enum.HumanoidStateType.Freefall) end)
-    end
-    task.wait(0.35)
+    stopFlight()
+    local gy = groundY(targetPos)
+    root.CFrame = CFrame.new(Vector3.new(targetPos.X, gy + 4, targetPos.Z))
+    task.wait(0.3)
     return true
 end
 
 -- ═══════════════════════════════════════════
 --  MEDITASI
 -- ═══════════════════════════════════════════
-local MEDITATE_SPOTS = { "Lotus", "MeditationStone", "Meditation", "MeditateSpot", "SitSpot", "Cushion", "JadeLotus", "QiSpot" }
 local MeditateActive = false
-
-local function findMeditationSpot()
-    local island = myIsland()
-    if island then
-        local obj, p = findFirstByNames(MEDITATE_SPOTS, island, true)
-        if p then return p.Position, "pulau pribadi: " .. obj.Name end
-    end
-    local lotusData = safeReq("Lotus")
-    if lotusData then
-        for k, v in pairs(lotusData) do
-            if type(v) == "table" then
-                local pos = v.Position or v.CFrame or v.Spot or v.Pos
-                if typeof and typeof(pos) == "Vector3" then return pos, "Shared.Lotus." .. k end
-                if typeof and typeof(pos) == "CFrame" then return pos.Position, "Shared.Lotus." .. k end
-            elseif typeof and typeof(v) == "Vector3" then
-                return v, "Shared.Lotus." .. tostring(k)
-            end
-        end
-    end
-    local part = findByKeyword(MEDITATE_SPOTS)
-    if part then return part.Position, part.Name end
-    return nil, nil
-end
 
 local function setMeditate(on)
     if on == MeditateActive then return end
     MeditateActive = on
-    fireRaw(Remotes.Meditate, on)
+
+    if Remotes.Meditate then
+        fireRaw(Remotes.Meditate, on)
+    end
+    fireAction("Meditate", on)
+
     if on then
-        fireAction("Meditate", true)
-        clickGuiButton({ "meditate", "meditasi" })
+        clickGui({ "meditate", "meditasi" })
     else
         fireAction("StopMeditate")
-        fireAction("Meditate", false)
     end
 end
 
 -- ═══════════════════════════════════════════
---  HERBAL & CAULDRON
+--  HERBAL & CAULDRON (RAMUAN BREAKTHROUGH)
 -- ═══════════════════════════════════════════
-local HERB_HINTS = { "herb", "lotus", "flower", "mushroom", "ginseng", "root", "leaf", "vine", "grass", "bloom", "petal", "seed", "spirit", "fern", "bud", "sprout", "weed" }
-local HARVEST_HINTS = { "harvest", "collect", "pick", "petik", "ambil" }
-local CAULDRON_NAMES = { "Cauldron", "Kuali", "Alchemy", "BrewPot", "PotionStand", "CauldronStand" }
+local Recipes = {}
 
-local HerbHintCache = nil
-
-local function herbNameList()
-    if HerbHintCache then return HerbHintCache end
-    local names = {}
-    safeReq("Alchemy")
-    for _, recipe in ipairs(Recipes) do
-        for _, ing in ipairs(recipe.Ingredients) do
-            table.insert(names, ing.Name)
+local function buildRecipes()
+    Recipes = {}
+    local alch = safeReq("Alchemy")
+    if not alch then return end
+    for k, v in pairs(alch) do
+        if type(v) == "table" then
+            local ings = {}
+            local rawIngs = v.Ingredients or v.Items or v.Materials or v.Recipe
+            if type(rawIngs) == "table" then
+                for ingName, count in pairs(rawIngs) do
+                    if type(ingName) == "string" then
+                        table.insert(ings, { Name = ingName, Count = tonumber(count) or 1 })
+                    elseif type(count) == "table" then
+                        table.insert(ings, { Name = count.Name or tostring(ingName), Count = tonumber(count.Count or count.Amount) or 1 })
+                    end
+                end
+            end
+            table.insert(Recipes, { Name = v.Name or tostring(k), Ingredients = ings })
         end
     end
-    local items = safeReq("Items")
-    if items then
-        for k, v in pairs(items) do
-            local n = type(k) == "string" and k or (type(v) == "table" and (v.Name or v.DisplayName)) or nil
-            if type(n) == "string" then
-                local low = string.lower(n)
-                for _, hint in ipairs(HERB_HINTS) do
-                    if string.find(low, hint, 1, true) then
-                        table.insert(names, n)
-                        break
-                    end
+end
+
+local function countItemInBag(itemName)
+    if not itemName or itemName == "" then return 0 end
+    local count = 0
+    local target = string.lower(itemName):gsub("%s+", "")
+    local containers = { LocalPlayer:FindFirstChild("Backpack"), LocalPlayer.Character }
+    for _, c in ipairs(containers) do
+        if c then
+            for _, obj in ipairs(c:GetChildren()) do
+                if string.find(string.lower(obj.Name):gsub("%s+", ""), target, 1, true) then
+                    count = count + 1
                 end
             end
         end
     end
-    HerbHintCache = names
-    return names
+    local attr = attrOf({ itemName })
+    if type(attr) == "number" then count = math.max(count, attr) end
+    return count
 end
 
-local function isHerbObject(obj, prompt)
-    local low = string.lower(obj.Name)
-    for _, hint in ipairs(HERB_HINTS) do
-        if string.find(low, hint, 1, true) then return true end
-    end
-    for _, name in ipairs(herbNameList()) do
-        if low == string.lower(name) or string.find(low, string.lower(name), 1, true) then return true end
-    end
-    if prompt then
-        local label = string.lower(tostring(prompt.ObjectText or "") .. " " .. tostring(prompt.ActionText or ""))
-        for _, hint in ipairs(HARVEST_HINTS) do
-            if string.find(label, hint, 1, true) then return true end
+local function countPill()
+    local p = attrOf({ "BreakthroughPill", "Pill", "Elixir", "BreakthroughElixir" })
+    if type(p) == "number" then return p end
+    return countItemInBag("Pill") + countItemInBag("Breakthrough")
+end
+
+local function findHerbsInWorld()
+    local herbs = {}
+    local root = getRootPart()
+    local origin = root and root.Position or Vector3.zero
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("ProximityPrompt") then
+            local p = obj.Parent
+            local part = p and (p:IsA("BasePart") and p or p:FindFirstChildWhichIsA("BasePart"))
+            if part and not (LocalPlayer.Character and part:IsDescendantOf(LocalPlayer.Character)) then
+                local low = string.lower(p.Name .. " " .. tostring(obj.ActionText or "") .. " " .. tostring(obj.ObjectText or ""))
+                if string.find(low, "herb", 1, true) or string.find(low, "lotus", 1, true) or string.find(low, "flower", 1, true) or string.find(low, "harvest", 1, true) or string.find(low, "plant", 1, true) then
+                    table.insert(herbs, {
+                        Part = part,
+                        Prompt = obj,
+                        Dist = (part.Position - origin).Magnitude,
+                    })
+                end
+            end
         end
-        if string.find(label, "herb", 1, true) or string.find(label, "plant", 1, true) then return true end
+    end
+    table.sort(herbs, function(a, b) return a.Dist < b.Dist end)
+    return herbs
+end
+
+local function findCauldron()
+    local obitel = workspace:FindFirstChild("Obitel")
+    local islands = obitel and obitel:FindFirstChild("Islands")
+    local myIs = islands and islands:FindFirstChild("Island_" .. tostring(LocalPlayer.UserId))
+    local searchArea = myIs or workspace
+
+    for _, obj in ipairs(searchArea:GetDescendants()) do
+        if string.find(string.lower(obj.Name), "cauldron", 1, true) or string.find(string.lower(obj.Name), "kuali", 1, true) then
+            local p = partOf(obj)
+            if p then return p end
+        end
+    end
+    return nil
+end
+
+local function brewCauldron()
+    local cauldron = findCauldron()
+    if not cauldron then
+        log("Cauldron tidak ditemukan.")
+        return false
+    end
+
+    travelTo(cauldron.Position, "Cauldron (Kuali)", 7)
+    task.wait(0.3)
+    local prompt = findPromptNear(cauldron.Position, 20)
+    if prompt then usePrompt(prompt) end
+    task.wait(0.4)
+
+    clickGui({ "brew", "craft", "racik", "cauldron", "make" })
+    fireAction("Brew")
+    fireAction("CraftPill")
+    task.wait(0.8)
+    clickGui({ "brew", "craft", "confirm", "ya" })
+    log("Selesai meracik di Cauldron.")
+    return true
+end
+
+local function checkAndCraftPill()
+    if countPill() > 0 then return true end
+    if #Recipes == 0 then buildRecipes() end
+
+    local currentRecipe = Recipes[((State.RealmIndex - 1) % math.max(#Recipes, 1)) + 1]
+    if currentRecipe and #currentRecipe.Ingredients > 0 then
+        local missing = {}
+        for _, ing in ipairs(currentRecipe.Ingredients) do
+            local have = countItemInBag(ing.Name)
+            if have < ing.Count then
+                table.insert(missing, { Name = ing.Name, Need = ing.Count - have })
+            end
+        end
+
+        if #missing > 0 and State.AutoHerbFarm then
+            log("Bahan kurang: " .. missing[1].Name .. " (" .. missing[1].Need .. "x). Mencari herbal...")
+            local herbs = findHerbsInWorld()
+            for i = 1, math.min(#herbs, 3) do
+                travelTo(herbs[i].Part.Position, "Tanaman Herbal", 6)
+                task.wait(0.2)
+                usePrompt(herbs[i].Prompt)
+                fireAction("Harvest", herbs[i].Part.Name)
+                task.wait(0.3)
+            end
+        end
+    end
+
+    if State.AutoCauldron then
+        brewCauldron()
+        return countPill() > 0
     end
     return false
 end
 
-local function findHerbs(limit)
-    local root = getRootPart()
-    local origin = root and root.Position or Vector3.zero
-    local ch = LocalPlayer.Character
-    local found = {}
+-- ═══════════════════════════════════════════
+--  REBIRTH / BREAKTHROUGH & ELDER YUN
+-- ═══════════════════════════════════════════
+local function findElderYun()
+    local obitel = workspace:FindFirstChild("Obitel")
+    local elder = obitel and obitel:FindFirstChild("ElderYun")
+    if elder then
+        local p = partOf(elder)
+        if p then return p end
+    end
     for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("ProximityPrompt") then
-            local host = obj.Parent
-            local p = partOf(host)
-            if p and (not ch or not host:IsDescendantOf(ch)) then
-                if isHerbObject(host, obj) then
-                    table.insert(found, { part = p, prompt = obj, dist = (p.Position - origin).Magnitude })
-                end
-            end
+        if string.find(string.lower(obj.Name), "elderyun", 1, true) or string.find(string.lower(obj.Name), "yun", 1, true) then
+            local p = partOf(obj)
+            if p then return p end
         end
     end
-    table.sort(found, function(a, b) return a.dist < b.dist end)
-    if limit then
-        while #found > limit do table.remove(found) end
-    end
-    return found
+    return nil
 end
-
-local function findCauldron()
-    local island = myIsland()
-    local obj, p = findFirstByNames(CAULDRON_NAMES, island or workspace, true)
-    if p then return p end
-    local part = findByKeyword({ "cauldron", "kuali" }, 4)
-    return part
-end
-
-local function harvestOne(entry)
-    if not entry or not entry.part then return false end
-    travelTo(entry.part.Position, { Label = "tanaman herbal", Arrive = 6 })
-    task.wait(math.random(2, 4) / 10)
-    local prompt = entry.prompt
-    if not prompt or not prompt.Parent then
-        prompt = findPromptNear(entry.part.Position, 12)
-    end
-    usePrompt(prompt)
-    fireAction("Harvest", entry.part.Name)
-    task.wait(0.35)
-    return true
-end
-
-local function brewAtCauldron()
-    local cauldron = findCauldron()
-    if not cauldron then
-        log("Cauldron tidak ditemukan di map.")
-        return false
-    end
-    travelTo(cauldron.Position, { Label = "cauldron", Arrive = 8 })
-    task.wait(0.4)
-    local prompt = findPromptNear(cauldron.Position, 20)
-    if prompt then usePrompt(prompt) end
-    task.wait(0.6)
-    if not clickGuiButton({ "brew", "racik", "craft", "cauldron" }) then
-        fireAction("Brew")
-        task.wait(0.4)
-        fireAction("CraftPill")
-    end
-    task.wait(0.8)
-    clickGuiButton({ "brew", "racik", "craft" })
-    log("Percobaan meracik pil terobosan selesai.")
-    return true
-end
-
--- ═══════════════════════════════════════════
---  REBIRTH / TRIBULATION
--- ═══════════════════════════════════════════
-local TRIBULATION_ATTRS = { "Tribulation", "IsTribulating", "InTribulation", "Tribulating", "TribulationActive" }
 
 local function isTribulating()
-    local v = attrOf(TRIBULATION_ATTRS)
-    if v == true then return true end
-    for _, n in ipairs({ "Tribulation", "TribulationCloud", "HeavenlyTribulation", "TribulationZone" }) do
+    local flag = attrOf({ "Tribulation", "InTribulation", "IsTribulating" })
+    if flag == true then return true end
+    for _, n in ipairs({ "Tribulation", "TribulationCloud", "HeavenlyTribulation" }) do
         if workspace:FindFirstChild(n) then return true end
-    end
-    local pg = LocalPlayer:FindFirstChild("PlayerGui")
-    if pg then
-        for _, d in ipairs(pg:GetDescendants()) do
-            if d:IsA("TextLabel") and string.find(string.lower(d.Text), "tribulation", 1, true) then
-                local p = d.Parent
-                if p and p.Visible ~= false then return true end
-            end
-        end
     end
     return false
 end
 
 local function attemptRebirth()
-    local npc = elderYun()
-    local targetPos = npc and partOf(npc) and partOf(npc).Position
-    if targetPos then
-        travelTo(targetPos, { Label = "Elder Yun", Arrive = 8 })
-        task.wait(0.4)
-        local prompt = findPromptNear(targetPos, 22)
+    local elder = findElderYun()
+    if elder then
+        travelTo(elder.Position, "Elder Yun (Rebirth)", 7)
+        task.wait(0.3)
+        local prompt = findPromptNear(elder.Position, 20)
         if prompt then usePrompt(prompt) end
-        task.wait(0.5)
-        clickGuiButton({ "breakthrough", "rebirth", "terobosan", "ascend", "realm" })
+        task.wait(0.4)
+        clickGui({ "breakthrough", "terobosan", "rebirth", "ascend", "realm" })
     end
-    fireAction("Rebirth")
-    task.wait(0.35)
-    fireAction("Breakthrough")
-    log("Menembak aksi rebirth/breakthrough.")
 
-    local before = State.RealmIndex
-    local deadline = os.clock() + 22
-    local defended = false
-    local reprobed = false
-    while os.clock() < deadline do
-        if not reprobed and os.clock() > deadline - 16 then
-            reprobed = true
-            -- rantai probe bila nama aksi tebakan tidak diterima server
-            task.spawn(function()
-                probeActions({ { "AttemptBreakthrough" }, { "Ascend" }, { "RealmBreakthrough" }, { "Tribulation" } }, function()
-                    return State.RealmIndex > before
-                end, 1.4, 8)
-            end)
-        end
-        if isTribulating() then
-            if not defended then
-                log("Heavenly Tribulation terdeteksi — bertahan & meditasi.")
-                defended = true
-            end
-            if State.AutoDefend then
-                fireAction("Defend")
-                if not MeditateActive then setMeditate(true) end
-            end
+    fireAction("Rebirth")
+    fireAction("Breakthrough")
+    fireAction("AttemptBreakthrough")
+    log("Memicu aksi Breakthrough / Rebirth.")
+
+    local startRealm = State.RealmIndex
+    local t0 = os.clock()
+    while os.clock() - t0 < 18 do
+        if isTribulating() and State.AutoDefend then
+            log("Heavenly Tribulation! Bertahan & Meditasi...")
+            fireAction("Defend")
+            setMeditate(true)
         end
         refreshPlayerState()
-        if State.RealmIndex > before then
-            log("Realm naik: " .. tostring(State.Realm))
+        if State.RealmIndex > startRealm then
+            log("Berhasil naik ke Realm: " .. State.Realm)
             return true
         end
-        task.wait(0.7)
-    end
-    return State.RealmIndex > before
-end
-
--- ═══════════════════════════════════════════
---  SKY LANTERN & FESTIVAL SHOP
--- ═══════════════════════════════════════════
-local LANTERN_HINTS = { "lantern", "lentera", "skylantern", "festival" }
-local SHOP_HINTS = { "festivalshop", "festival_shop", "shopkeeper", "merchant", "vendor", "festivalvendor", "pedagang" }
-
-local function findLanterns(limit)
-    local root = getRootPart()
-    local origin = root and root.Position or Vector3.zero
-    local found = {}
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("BasePart") and not obj:IsDescendantOf(LocalPlayer.Character or workspace) then
-            local low = string.lower(obj.Name)
-            for _, hint in ipairs(LANTERN_HINTS) do
-                if string.find(low, hint, 1, true) then
-                    table.insert(found, { part = obj, dist = (obj.Position - origin).Magnitude })
-                    break
-                end
-            end
-        end
-    end
-    table.sort(found, function(a, b) return a.dist < b.dist end)
-    if limit then
-        while #found > limit do table.remove(found) end
-    end
-    return found
-end
-
-local function collectLanterns()
-    local list = findLanterns(12)
-    if #list == 0 then return 0 end
-    local count = 0
-    for _, entry in ipairs(list) do
-        if entry.part.Parent then
-            travelTo(entry.part.Position, { Label = "sky lantern", Arrive = 8 })
-            task.wait(0.25)
-            local prompt = findPromptNear(entry.part.Position, 15)
-            if prompt then usePrompt(prompt) end
-            fireAction("CollectLantern")
-            fireAction("Lantern", entry.part.Name)
-            count = count + 1
-            task.wait(0.3)
-        end
-    end
-    return count
-end
-
-local function findShop()
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("BasePart") or obj:IsA("Model") then
-            local low = normalizeName(obj.Name)
-            for _, hint in ipairs(SHOP_HINTS) do
-                if string.find(low, hint, 1, true) then
-                    local p = partOf(obj)
-                    if p then return p end
-                end
-            end
-        end
-    end
-    return nil
-end
-
-local function shopBuy(itemName)
-    if not itemName or itemName == "" then
-        log("Nama item festival belum diisi.")
-        return false
-    end
-    local shop = findShop()
-    if shop then
-        travelTo(shop.Position, { Label = "festival shop", Arrive = 9 })
-        task.wait(0.3)
-        local prompt = findPromptNear(shop.Position, 22)
-        if prompt then usePrompt(prompt) end
         task.wait(0.6)
     end
-    clickGuiButton({ string.lower(itemName) })
-    fireAction("BuyFestivalItem", itemName)
-    fireAction("FestivalBuy", itemName)
-    fireAction("Buy", itemName)
-    task.wait(0.3)
-    clickGuiButton({ "buy", "beli", "purchase" })
-    log("Percobaan pembelian: " .. itemName)
-    return true
+    return State.RealmIndex > startRealm
 end
 
 -- ═══════════════════════════════════════════
---  TALENT GACHA
+--  AUTO REBIRTH & CULTIVATION MAIN LOOP
 -- ═══════════════════════════════════════════
-local TALENT_TOKEN_ATTRS = { "TalentToken", "TalentTokens", "TalentRoll", "TalentRolls", "RerollToken", "TalentCoupon", "Tokens" }
-local TIER_KEYWORDS = { "mythic", "legend", "legendary", "divine", "immortal", "godly", "heaven", "celestial", "supreme" }
-
-local function talentTokens()
-    for _, n in ipairs(TALENT_TOKEN_ATTRS) do
-        local v = attrOf({ n })
-        if type(v) == "number" then return v end
-    end
-    return nil
-end
-
-local function readTalentText()
-    local pg = LocalPlayer:FindFirstChild("PlayerGui")
-    if not pg then return nil end
-    local best
-    for _, d in ipairs(pg:GetDescendants()) do
-        if d:IsA("TextLabel") and d.Visible then
-            local node, score = d, 0
-            for _ = 1, 4 do
-                if node.Parent then
-                    local low = string.lower(node.Name)
-                    if string.find(low, "talent") or string.find(low, "result") or string.find(low, "rarity") then
-                        score = score + 3
-                    end
-                    node = node.Parent
-                end
-            end
-            if score > 0 and string.len(d.Text) > 1 then
-                best = d.Text
-            end
-        end
-    end
-    return best
-end
-
-local function talentMatches(text)
-    if not text then return false end
-    local low = string.lower(text)
-    if State.TargetTalent ~= "" and string.find(low, string.lower(State.TargetTalent), 1, true) then
-        return true
-    end
-    if State.TalentTier ~= "" then
-        local wanted = string.lower(State.TalentTier)
-        if string.find(low, wanted, 1, true) then return true end
-        -- tier tinggi: cocokkan juga sinonim
-        if wanted == "mythic" then
-            for _, kw in ipairs({ "divine", "immortal", "godly", "supreme", "celestial" }) do
-                if string.find(low, kw, 1, true) then return true end
-            end
-        end
-    end
-    return false
-end
-
-local function rollTalentOnce()
-    fireAction("RollTalent")
-    fireAction("TalentRoll")
-    fireAction("RerollTalent")
-    fireAction("Spin")
-    task.wait(State.RollDelay or 0.45)
-    return talentMatches(readTalentText())
-end
-
--- ═══════════════════════════════════════════
---  TELEPORT TARGET BUILDER (Shared.World)
--- ═══════════════════════════════════════════
-local TeleportTargets = {}
-local TeleportLabels = {}
-
-local function addTarget(label, pos, source)
-    if typeof(pos) ~= "Vector3" then return end
-    if #TeleportLabels > 250 then return end
-    local key = label .. "  (" .. source .. ")"
-    TeleportTargets[key] = pos
-    table.insert(TeleportLabels, key)
-end
-
-local function extractPos(v)
-    if type(v) ~= "table" then
-        if typeof(v) == "Vector3" then return v end
-        if typeof(v) == "CFrame" then return v.Position end
-        return nil
-    end
-    local candidates = { "Position", "Pos", "CFrame", "Spawn", "Spot", "Location", "Teleport", "Point", "Origin" }
-    for _, key in ipairs(candidates) do
-        local val = v[key]
-        if typeof(val) == "Vector3" then return val end
-        if typeof(val) == "CFrame" then return val.Position end
-    end
-    return nil
-end
-
-local function walkWorld(tbl, prefix, depth)
-    if type(tbl) ~= "table" or depth > 3 then return end
-    for k, v in pairs(tbl) do
-        if type(k) == "string" and k ~= "Name" then
-            local pos = extractPos(v)
-            if pos then
-                addTarget(prefix .. k, pos, "Shared.World")
-            elseif type(v) == "table" then
-                walkWorld(v, prefix .. k .. " / ", depth + 1)
-            end
-        end
-    end
-end
-
-local function buildTeleportTargets()
-    TeleportTargets = {}
-    TeleportLabels = {}
-
-    local world = safeReq("World")
-    if world then walkWorld(world, "", 0) end
-
-    local obitel = workspace:FindFirstChild("Obitel")
-    local islands = obitel and obitel:FindFirstChild("Islands")
-    if islands then
-        for _, island in ipairs(islands:GetChildren()) do
-            local p = partOf(island)
-            if p then
-                local pid = tonumber(string.match(island.Name, "%d+"))
-                local owner = pid and Players:GetPlayerByUserId(pid)
-                local label = owner and ("Pulau " .. owner.DisplayName) or ("Pulau " .. island.Name)
-                addTarget(label, p.Position, "Pulau")
-            end
-        end
-    end
-
-    local elder = elderYun()
-    local elderPart = elder and partOf(elder)
-    if elderPart then addTarget("Elder Yun (Rebirth NPC)", elderPart.Position, "Spot") end
-
-    local cauldron = findCauldron()
-    if cauldron then addTarget("Cauldron (Kuali Ramuan)", cauldron.Position, "Spot") end
-
-    local lotusPos = findMeditationSpot()
-    if lotusPos then addTarget("Spot Meditasi Terdekat", lotusPos, "Spot") end
-
-    local spawn = workspace:FindFirstChildWhichIsA("SpawnLocation", true)
-    if spawn then addTarget("Spawn / Titik Awal", spawn.Position, "Spot") end
-
-    table.sort(TeleportLabels)
-end
-
--- ═══════════════════════════════════════════
---  LOOP UTAMA: AUTO REBIRTH / CULTIVATION
--- ═══════════════════════════════════════════
-local MeditateSpot = nil
-local MeditateSpotLabel = nil
-local QiStallAt = nil
-local QiLast = -1
-
-local function clearMeditateSpot()
-    MeditateSpot = nil
-    MeditateSpotLabel = nil
-end
-
-local function goMeditate()
-    if State.Locked then return end
-    if not MeditateSpot then
-        local pos, label = findMeditationSpot()
-        if not pos then
-            if os.clock() - (State.SpotWarn or 0) > 15 then
-                State.SpotWarn = os.clock()
-                log("Spot meditasi tidak terdeteksi — meditasi di tempat.")
-            end
-            setMeditate(true)
-            return
-        end
-        MeditateSpot = pos
-        MeditateSpotLabel = label
-        log("Menuju spot meditasi: " .. tostring(label))
-        travelTo(pos, { Label = "spot meditasi", Arrive = 6 })
-    else
-        local root = getRootPart()
-        if root and (root.Position - MeditateSpot).Magnitude > 25 then
-            travelTo(MeditateSpot, { Label = "spot meditasi", Arrive = 6 })
-        end
-    end
-    if not MeditateActive then setMeditate(true) end
-end
-
-local function gatherForRecipe(recipe)
-    if not recipe then return false end
-    local missing = {}
-    for _, ing in ipairs(recipe.Ingredients) do
-        local have = countItem(ing.Name)
-        if have < ing.Count then
-            table.insert(missing, { name = ing.Name, need = ing.Count - have })
-        end
-    end
-    if #missing == 0 then return true end
-
-    log("Bahan kurang: " .. missing[1].name .. " (butuh " .. missing[1].need .. ")")
-    local banked = 0
-    local deadline = os.clock() + 180
-    while os.clock() < deadline and State.AutoRebirth do
-        refreshPlayerState()
-        if not State.AutoHerbFarm then break end
-        local herbs = findHerbs(1)
-        if #herbs == 0 then
-            log("Tidak ada tanaman herbal terdeteksi di map.")
-            break
-        end
-        harvestOne(herbs[1])
-        banked = banked + 1
-        if ingredientsReady(recipe) then return true end
-        if banked > 40 then break end
-        task.wait(0.25)
-    end
-    return ingredientsReady(recipe)
-end
-
-local function tryPreparePill()
-    local pill = countPill()
-    if pill > 0 then return true end
-    local recipe = recipeForRealm(State.RealmIndex)
-    if not recipe then
-        return false
-    end
-    if not ingredientsReady(recipe) then
-        if not State.AutoHerbFarm then return false end
-        gatherForRecipe(recipe)
-    end
-    if ingredientsReady(recipe) then
-        if State.AutoCauldron then
-            brewAtCauldron()
-            task.wait(1)
-            return countPill() > 0
-        end
-    end
-    return countPill() > 0
-end
-
 local function autoRebirthLoop()
     if State.LoopRunning then return end
     State.LoopRunning = true
-    local noProgressTicks = 0
 
     while State.AutoRebirth do
         local ok, err = pcall(function()
             refreshPlayerState()
             if State.Locked then return end
-            local qi = State.Qi or 0
 
             if State.RebirthMaxRealm > 0 and State.RealmIndex >= State.RebirthMaxRealm then
-                log("Batas realm tercapai (" .. State.Realm .. "). Loop berhenti.")
+                log("Target Realm (" .. State.Realm .. ") tercapai! Loop berhenti.")
                 State.AutoRebirth = false
                 return
             end
 
+            local qi = State.Qi or 0
             if qi >= State.QiThreshold then
-                State.Step = "menyiapkan breakthrough"
+                State.Step = "Menyiapkan Terobosan"
                 setMeditate(false)
-                tryPreparePill()
-                State.Step = "eksekusi rebirth"
-                local success = attemptRebirth()
-                if success then
-                    log("Breakthrough berhasil ke " .. State.Realm .. ". Lanjut realm berikutnya...")
-                    clearMeditateSpot()
-                    noProgressTicks = 0
-                    task.wait(math.random(4, 7))
+
+                -- Cek dan siapkan pil ramuan
+                checkAndCraftPill()
+
+                -- Eksekusi Rebirth di Elder Yun
+                State.Step = "Eksekusi Rebirth (Elder Yun)"
+                local okUp = attemptRebirth()
+                if okUp then
+                    log("Breakthrough sukses! Bersiap kultivasi tahap selanjutnya...")
+                    task.wait(3.5)
                 else
-                    noProgressTicks = noProgressTicks + 1
-                    log("Breakthrough belum berhasil (percobaan " .. noProgressTicks .. ").")
-                    if noProgressTicks >= 5 then
-                        log("5x gagal — jeda 20 detik agar server sinkron.")
-                        noProgressTicks = 0
-                        task.wait(20)
-                    else
-                        task.wait(3)
-                    end
+                    log("Breakthrough belum selesai, melanjutkan kultivasi...")
+                    task.wait(2.0)
                 end
             else
-                if QiLast >= 0 and math.abs(qi - QiLast) < 0.05 then
-                    QiStallAt = QiStallAt or os.clock()
-                else
-                    QiStallAt = nil
-                end
-                QiLast = qi
+                State.Step = string.format("Kultivasi (Qi %.1f%%)", qi)
 
-                if QiStallAt and os.clock() - QiStallAt > 25 then
-                    log("Qi mandek — reset meditasi & pindah spot.")
-                    setMeditate(false)
-                    clearMeditateSpot()
-                    QiStallAt = nil
+                -- Pergi ke Bagua Circle / Spot Kultivasi
+                local spotPos, spotName = getBestCultivationSpot()
+                if spotPos then
+                    local root = getRootPart()
+                    if root and (root.Position - spotPos).Magnitude > 16 then
+                        travelTo(spotPos, spotName or "Bagua Circle", 6)
+                    end
                 end
 
-                State.Step = "meditasi (" .. string.format("%.1f", qi) .. "%)"
-                goMeditate()
-                task.wait(1.2)
+                if not MeditateActive then
+                    setMeditate(true)
+                end
+                task.wait(1.5)
             end
         end)
+
         if not ok then
             log("Loop error: " .. tostring(err))
-            task.wait(2)
+            task.wait(2.0)
         end
-        task.wait(0.6)
+        task.wait(0.5)
     end
 
     State.LoopRunning = false
-    State.Step = "idle"
+    State.Step = "Siap"
     setMeditate(false)
-    if Travel.Flying then endFlight() end
-    log("Loop auto rebirth berhenti.")
+    stopFlight()
+    log("Auto Rebirth dihentikan.")
 end
 
 -- ═══════════════════════════════════════════
---  LOOP PENDUKUNG (LANTERN, SHOP, GACHA, STATUS)
+--  TALENT GACHA FAST ROLL
 -- ═══════════════════════════════════════════
-local function lanternLoop()
-    if State.LoopLantern then return end
-    State.LoopLantern = true
-    while State.AutoLantern do
-        pcall(function()
-            local got = collectLanterns()
-            if got > 0 then log("Sky lantern diproses: " .. got) end
-        end)
-        task.wait(3)
-    end
-    State.LoopLantern = false
-end
+local function rollTalentFast()
+    -- 1. Klik tombol UI Roll di dalam TalentWindow
+    local clicked = clickGui({ "roll", "reroll", "spin", "gacha", "putar", "acak" })
 
-local function meditateLoop()
-    if State.LoopMeditate then return end
-    State.LoopMeditate = true
-    while State.AutoMeditate do
-        pcall(function()
-            if not MeditateActive and not State.Locked then
-                goMeditate()
-            elseif MeditateSpot then
-                local root = getRootPart()
-                if root and (root.Position - MeditateSpot).Magnitude > 30 then
-                    goMeditate()
+    -- 2. Tembak aksi ke Remote Action
+    fireAction("RollTalent")
+    fireAction("TalentRoll")
+    fireAction("RerollTalent")
+    fireAction("Reroll")
+    fireAction("Spin")
+
+    -- 3. Cek hasil teks talent
+    local pg = getPlayerGui()
+    if pg then
+        for _, lbl in ipairs(pg:GetDescendants()) do
+            if lbl:IsA("TextLabel") and lbl.Visible then
+                local low = string.lower(lbl.Text)
+                if State.TargetTalent ~= "" and string.find(low, string.lower(State.TargetTalent), 1, true) then
+                    return true, lbl.Text
+                end
+                if State.TalentTier ~= "" and string.find(low, string.lower(State.TalentTier), 1, true) then
+                    return true, lbl.Text
                 end
             end
-        end)
-        task.wait(2.5)
+        end
     end
-    State.LoopMeditate = false
+    return false, nil
 end
 
-local function shopLoop()
-    if State.LoopShop then return end
-    State.LoopShop = true
-    while State.AutoShop do
-        pcall(function()
-            if State.ShopItem ~= "" then shopBuy(State.ShopItem) end
-        end)
-        task.wait(6)
-    end
-    State.LoopShop = false
-end
-
-local function gachaLoop()
+local function talentGachaLoop()
     if State.LoopGacha then return end
     State.LoopGacha = true
-    clickGuiButton({ "talent" })
-    task.wait(0.6)
-    local rolls = 0
+
+    -- Buka window talent terlebih dahulu
+    clickGui({ "talent", "bakat" })
+    task.wait(0.5)
+
+    local count = 0
     while State.AutoGacha do
         local stop = false
         pcall(function()
-            local tokens = talentTokens()
-            if tokens ~= nil and tokens <= 0 then
-                log("Token talent habis.")
-                stop = true
-                return
-            end
-            local hit = rollTalentOnce()
-            rolls = rolls + 1
-            if hit then
-                log("Target talent didapat dalam " .. rolls .. " roll!")
+            local gotTarget, talentName = rollTalentFast()
+            count = count + 1
+            if gotTarget then
+                log("Target Talent Ditemukan: " .. tostring(talentName) .. " (dalam " .. count .. " roll)!")
                 State.AutoGacha = false
                 stop = true
             end
         end)
         if stop then break end
-        if rolls % 15 == 0 then log("Total roll: " .. rolls) end
-        task.wait(0.1)
+        task.wait(State.RollDelay or 0.35)
     end
     State.LoopGacha = false
 end
 
-local function applyWalkSpeed()
-    local hum = getHumanoid()
-    if hum and not Travel.Flying then
-        pcall(function() hum.WalkSpeed = State.WalkSpeed end)
+-- ═══════════════════════════════════════════
+--  EVENT & FESTIVAL (SKY LANTERN & SHOP)
+-- ═══════════════════════════════════════════
+local function collectSkyLanterns()
+    local root = getRootPart()
+    local origin = root and root.Position or Vector3.zero
+    local lanterns = {}
+
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("BasePart") and not (LocalPlayer.Character and obj:IsDescendantOf(LocalPlayer.Character)) then
+            local low = string.lower(obj.Name)
+            if string.find(low, "lantern", 1, true) or string.find(low, "lentera", 1, true) then
+                table.insert(lanterns, { Part = obj, Dist = (obj.Position - origin).Magnitude })
+            end
+        end
+    end
+    table.sort(lanterns, function(a, b) return a.Dist < b.Dist end)
+
+    local collected = 0
+    for i = 1, math.min(#lanterns, 8) do
+        local l = lanterns[i]
+        if l.Part and l.Part.Parent then
+            travelTo(l.Part.Position, "Sky Lantern", 8)
+            task.wait(0.2)
+            local prompt = findPromptNear(l.Part.Position, 16)
+            if prompt then usePrompt(prompt) end
+            fireAction("CollectLantern", l.Part.Name)
+            fireAction("Lantern", l.Part.Name)
+            collected = collected + 1
+            task.wait(0.3)
+        end
+    end
+    return collected
+end
+
+local function buyShopItem(itemName)
+    itemName = itemName or State.ShopItem or "Sky Lantern Charm"
+    log("Membeli item festival: " .. itemName)
+
+    -- Buka window shop
+    clickGui({ "festivalshop", "festival", "shop", "toko" })
+    task.wait(0.4)
+
+    -- Klik item target
+    clickGui({ itemName, "charm", "sky lantern charm" })
+    task.wait(0.2)
+
+    -- Konfirmasi beli
+    clickGui({ "buy", "beli", "purchase", "confirm" })
+    fireAction("BuyFestivalItem", itemName)
+    fireAction("Buy", itemName)
+end
+
+-- ═══════════════════════════════════════════
+--  TELEPORT & DAFTAR PULAU REAL-TIME
+-- ═══════════════════════════════════════════
+local IslandTargets = {}
+local IslandNames = {}
+
+local function refreshIslands()
+    IslandTargets = {}
+    IslandNames = {}
+
+    local obitel = workspace:FindFirstChild("Obitel")
+    local islands = obitel and obitel:FindFirstChild("Islands")
+
+    -- Tambah pulau pemain sendiri di urutan pertama
+    local myIslandName = "Pulau Saya (Island_" .. tostring(LocalPlayer.UserId) .. ")"
+    local myIs = islands and islands:FindFirstChild("Island_" .. tostring(LocalPlayer.UserId))
+    if myIs then
+        local p = partOf(myIs)
+        if p then
+            IslandTargets[myIslandName] = p.Position
+            table.insert(IslandNames, myIslandName)
+        end
+    end
+
+    -- Tambah pulau pemain lain di server
+    if islands then
+        for _, island in ipairs(islands:GetChildren()) do
+            local pid = tonumber(string.match(island.Name, "%d+"))
+            if pid and pid ~= LocalPlayer.UserId then
+                local player = Players:GetPlayerByUserId(pid)
+                local label = player and ("Pulau " .. player.DisplayName .. " (@" .. player.Name .. ")") or ("Pulau " .. island.Name)
+                local p = partOf(island)
+                if p then
+                    IslandTargets[label] = p.Position
+                    table.insert(IslandNames, label)
+                end
+            end
+        end
+    end
+
+    -- Tambah spot penting lainnya
+    local elder = findElderYun()
+    if elder then
+        IslandTargets["Elder Yun (Rebirth NPC)"] = elder.Position
+        table.insert(IslandNames, "Elder Yun (Rebirth NPC)")
+    end
+
+    local cauldron = findCauldron()
+    if cauldron then
+        IslandTargets["Cauldron (Kuali Ramuan)"] = cauldron.Position
+        table.insert(IslandNames, "Cauldron (Kuali Ramuan)")
+    end
+
+    local circles = findBaguaCircles()
+    for _, c in ipairs(circles) do
+        local label = "Bagua Circle: " .. c.Name .. " (x" .. tostring(c.Multiplier) .. " Qi)"
+        IslandTargets[label] = c.Position
+        table.insert(IslandNames, label)
     end
 end
 
-local function statusLoop()
-    task.spawn(function()
-        while true do
-            pcall(function()
-                refreshPlayerState()
-                applyWalkSpeed()
-                if State.StatusLabel then
-                    State.StatusLabel.Text = string.format(
-                        "Realm: %s  |  Qi: %.1f%%  |  Pil: %d  |  Tahap: %s",
-                        tostring(State.Realm), tonumber(State.Qi) or 0, countPill(), tostring(State.Step)
-                    )
-                end
-            end)
-            task.wait(0.7)
-        end
-    end)
-end
+-- ═══════════════════════════════════════════
+--  STATUS MONITOR LOOP
+-- ═══════════════════════════════════════════
+task.spawn(function()
+    while true do
+        pcall(function()
+            refreshPlayerState()
+            local hum = getHumanoid()
+            if hum and not Flight.Active then
+                hum.WalkSpeed = State.WalkSpeed
+            end
+            if State.StatusLabel then
+                State.StatusLabel.Text = string.format(
+                    "Realm: %s  |  Qi: %.1f%%  |  Pil: %d  |  Tahap: %s",
+                    tostring(State.Realm), tonumber(State.Qi) or 0, countPill(), tostring(State.Step)
+                )
+            end
+        end)
+        task.wait(0.8)
+    end
+end)
 
+-- Anti-AFK
 task.spawn(function()
     while true do
         pcall(function()
@@ -1691,31 +1239,31 @@ task.spawn(function()
                 pcall(function() VirtualUser:CaptureController() end)
                 hum.Jump = true
                 task.wait(0.1)
-                if hum then hum.Jump = false end
+                hum.Jump = false
             end
         end)
-        task.wait(120)
+        task.wait(100)
     end
 end)
 
 -- ═══════════════════════════════════════════
---  WINDOW UTAMA (UNIONSAL GLASS BENTO)
+--  BUILD UI (UNIONSAL GLASS BENTO - MAIN CATEGORY)
 -- ═══════════════════════════════════════════
 local Window = Unionsal:CreateWindow({
     Name       = "unionsal",
     Subtitle   = ".gg/unionsal",
     GameName   = "Cultivation Legends",
     ScriptName = "cultivationlegends.lua",
-    Version    = "v1.0",
+    Version    = "v2.0",
 })
 
 OurGui = Window.ScreenGui
 
 buildRealmList()
 buildRecipes()
-buildTeleportTargets()
+refreshIslands()
 
-local function notifyOk(title, content)
+local function notify(title, content)
     Window:Notify({ Title = title, Content = content, Duration = 3 })
 end
 
@@ -1724,13 +1272,12 @@ local function safeRun(fn)
         local ok, err = pcall(fn, ...)
         if not ok then
             log("Error: " .. tostring(err))
-            notifyOk("Error", tostring(err))
+            notify("Error", tostring(err))
         end
     end
 end
 
--- Label kustom yang bisa diperbarui (framework tidak mengembalikan objek label)
-local function createInfoLabel(tabObj, height, color)
+local function createInfoCard(tabObj, height)
     local card = Instance.new("Frame")
     card.Size = UDim2.new(1, 0, 0, height or 44)
     card.BackgroundColor3 = Color3.fromRGB(22, 17, 34)
@@ -1755,186 +1302,157 @@ local function createInfoLabel(tabObj, height, color)
     label.TextWrapped = true
     label.TextXAlignment = Enum.TextXAlignment.Left
     label.TextYAlignment = Enum.TextYAlignment.Top
-    label.TextColor3 = color or Color3.fromRGB(175, 110, 255)
+    label.TextColor3 = Color3.fromRGB(180, 120, 255)
     label.Text = ""
     label.Parent = card
     return label
 end
 
 -- ═══════════════════════════════════════════
---  TAB 1: CULTIVATION & REBIRTH
+--  TAB 1: CULTIVATION & REBIRTH (CATEGORY: Main)
 -- ═══════════════════════════════════════════
-local CultTab = Window:CreateTab("Cultivation", "sprout", "Cultivation")
-CultTab:CreateSection("Status Kultivasi Real-time")
-State.StatusLabel = createInfoLabel(CultTab, 44)
-State.StatusLabel.Text = "Membaca data realm & qi..."
+local CultTab = Window:CreateTab("Cultivation", "sprout", "Main")
+CultTab:CreateSection("Status Ranah Kultivasi")
+State.StatusLabel = createInfoCard(CultTab, 44)
+State.StatusLabel.Text = "Membaca data kultivasi..."
 
-CultTab:CreateSection("Auto Rebirth / Breakthrough")
+CultTab:CreateSection("Auto Rebirth Pintar (Sesuai Foto Bagua Circle)")
 CultTab:CreateToggle({
-    Name = "Auto Rebirth (Meditasi → Ramuan → Terobosan)",
+    Name = "Auto Rebirth (Otomatis ke Bagua Circle → Ramuan → Elder Yun)",
     CurrentValue = false,
     Callback = function(v)
         State.AutoRebirth = v
         if v then
-            notifyOk("Auto Rebirth", "Loop kultivasi aktif. Pastikan Auto Meditate menyala.")
+            notify("Auto Rebirth", "Loop aktif! Karakter otomatis terbang/jalan ke Bagua Circle.")
             task.spawn(autoRebirthLoop)
         else
-            notifyOk("Auto Rebirth", "Loop dihentikan.")
+            notify("Auto Rebirth", "Loop dimatikan.")
         end
     end,
 })
 
 CultTab:CreateToggle({
-    Name = "Auto Meditate (duduk di spot lotus)",
+    Name = "Auto Meditate (Meditasi di Bagua Circle / Spot)",
     CurrentValue = false,
     Callback = function(v)
         State.AutoMeditate = v
         if v then
-            task.spawn(meditateLoop)
+            task.spawn(function()
+                local spotPos, spotName = getBestCultivationSpot()
+                if spotPos then
+                    travelTo(spotPos, spotName or "Bagua Circle", 6)
+                end
+                setMeditate(true)
+            end)
         else
             setMeditate(false)
         end
-        notifyOk("Auto Meditate", v and "Meditasi otomatis aktif." or "Meditasi otomatis nonaktif.")
+        notify("Auto Meditate", v and "Meditasi aktif." or "Meditasi nonaktif.")
     end,
 })
 
 CultTab:CreateSlider({
-    Name = "Ambang Qi untuk Breakthrough",
+    Name = "Ambang Batas Qi untuk Breakthrough",
     Range = { 50, 100 },
-    Increment = 0.5,
+    Increment = 1,
     Suffix = "%",
-    CurrentValue = State.QiThreshold,
+    CurrentValue = 99,
     Callback = function(v)
         State.QiThreshold = v
     end,
 })
 
-CultTab:CreateSlider({
-    Name = "Berhenti di Realm Ke- (0 = tanpa batas)",
-    Range = { 0, 40 },
-    Increment = 1,
-    CurrentValue = 0,
+CultTab:CreateSection("Herbal & Cauldron Otomatis")
+CultTab:CreateToggle({
+    Name = "Auto Cari Bahan Herbal (Bila Kurang untuk Rebirth)",
+    CurrentValue = true,
     Callback = function(v)
-        State.RebirthMaxRealm = math.floor(v)
+        State.AutoHerbFarm = v
     end,
 })
 
 CultTab:CreateToggle({
-    Name = "Auto Bertahan saat Tribulation",
+    Name = "Auto Cauldron (Racik Pil Terobosan Otomatis)",
+    CurrentValue = true,
+    Callback = function(v)
+        State.AutoCauldron = v
+    end,
+})
+
+CultTab:CreateToggle({
+    Name = "Auto Defend / Meditasi saat Heavenly Tribulation",
     CurrentValue = true,
     Callback = function(v)
         State.AutoDefend = v
     end,
 })
 
-CultTab:CreateSection("Ramuan & Herbal")
-CultTab:CreateToggle({
-    Name = "Auto Herb Farm (petik tanaman bahan)",
-    CurrentValue = false,
-    Callback = function(v)
-        State.AutoHerbFarm = v
-        notifyOk("Auto Herb", v and "Pengumpulan herbal aktif." or "Pengumpulan herbal nonaktif.")
-    end,
-})
-
-CultTab:CreateToggle({
-    Name = "Auto Cauldron (racik pil terobosan)",
-    CurrentValue = false,
-    Callback = function(v)
-        State.AutoCauldron = v
-        notifyOk("Auto Cauldron", v and "Peracikan otomatis aktif." or "Peracikan otomatis nonaktif.")
-    end,
-})
-
+CultTab:CreateSection("Tombol Aksi Cepat")
 CultTab:CreateButton({
-    Name = "Meditasi Sekarang (pindah ke spot terdekat)",
-    Callback = safeRun(function()
-        clearMeditateSpot()
-        goMeditate()
-    end),
-})
-
-CultTab:CreateButton({
-    Name = "Paksa Breakthrough Sekarang (Elder Yun)",
+    Name = "Terbang ke Bagua Circle Sekarang (Spot x3 Qi)",
     Callback = safeRun(function()
         task.spawn(function()
-            attemptRebirth()
-        end)
-    end),
-})
-
-CultTab:CreateButton({
-    Name = "Petik 5 Tanaman Herbal Terdekat",
-    Callback = safeRun(function()
-        task.spawn(function()
-            local list = findHerbs(5)
-            for _, entry in ipairs(list) do
-                harvestOne(entry)
+            local spotPos, spotName = getBestCultivationSpot()
+            if spotPos then
+                travelTo(spotPos, spotName or "Bagua Circle", 6)
+                setMeditate(true)
+                notify("Bagua Circle", "Tiba di spot kultivasi! Mulai meditasi.")
+            else
+                notify("Bagua Circle", "Spot tidak terdeteksi.")
             end
-            notifyOk("Herbal", "Selesai memproses " .. #list .. " tanaman.")
         end)
     end),
 })
 
 CultTab:CreateButton({
-    Name = "Racik di Cauldron Sekarang",
+    Name = "Terbang ke Elder Yun (NPC Rebirth)",
     Callback = safeRun(function()
         task.spawn(function()
-            brewAtCauldron()
+            local elder = findElderYun()
+            if elder then
+                travelTo(elder.Position, "Elder Yun", 7)
+                notify("Elder Yun", "Tiba di Elder Yun.")
+            end
         end)
     end),
 })
 
 CultTab:CreateButton({
-    Name = "Hentikan Semua Fitur Auto",
+    Name = "Hentikan Semua Aksi",
     Callback = function()
         State.AutoRebirth = false
         State.AutoMeditate = false
-        State.AutoHerbFarm = false
-        State.AutoCauldron = false
+        State.AutoGacha = false
         State.AutoLantern = false
         State.AutoShop = false
-        State.AutoGacha = false
-        Travel.Cancelled = true
+        Flight.Cancelled = true
         setMeditate(false)
-        notifyOk("Stop", "Semua fitur otomatis dimatikan.")
+        stopFlight()
+        notify("Stop", "Semua fitur dinonaktifkan.")
     end,
 })
 
-CultTab:CreateSection("Info")
-CultTab:CreateParagraph({
-    Title = "Cara kerja",
-    Content = "Loop membaca Realm & Qi real-time. Qi < ambang → menuju lotus + meditasi. Qi penuh → siapkan pil (herbal & cauldron) lalu menemui Elder Yun. Tribulation ditahan otomatis.",
-})
-
 -- ═══════════════════════════════════════════
---  TAB 2: MOVEMENT
+--  TAB 2: MOVEMENT & SWORD FLIGHT (CATEGORY: Main)
 -- ═══════════════════════════════════════════
-local MoveTab = Window:CreateTab("Movement", "rocket", "Movement")
-MoveTab:CreateSection("Sword Flight Controller")
+local MoveTab = Window:CreateTab("Movement", "rocket", "Main")
+MoveTab:CreateSection("Pengaturan Pedang Terbang (Sword Flight)")
 
 MoveTab:CreateToggle({
-    Name = "Gunakan Flying Sword untuk perjalanan",
+    Name = "Gunakan Pedang Terbang untuk Semua Perjalanan",
     CurrentValue = true,
     Callback = function(v)
         State.UseSwordFlight = v
-    end,
-})
-
-MoveTab:CreateToggle({
-    Name = "Mode Aman (smooth, anti-deteksi)",
-    CurrentValue = true,
-    Callback = function(v)
-        State.SafeTravel = v
+        notify("Sword Flight", v and "Pedang terbang aktif untuk navigasi." or "Mode jalan kaki aktif.")
     end,
 })
 
 MoveTab:CreateSlider({
-    Name = "Kecepatan Terbang",
-    Range = { 60, 500 },
+    Name = "Kecepatan Terbang (Studs/s)",
+    Range = { 60, 450 },
     Increment = 5,
     Suffix = " studs/s",
-    CurrentValue = 175,
+    CurrentValue = 185,
     Callback = function(v)
         State.FlySpeed = v
     end,
@@ -1942,121 +1460,52 @@ MoveTab:CreateSlider({
 
 MoveTab:CreateSlider({
     Name = "Ketinggian Terbang Natural",
-    Range = { 10, 120 },
+    Range = { 12, 100 },
     Increment = 2,
-    CurrentValue = 28,
+    Suffix = " studs",
+    CurrentValue = 26,
     Callback = function(v)
         State.NaturalHeight = v
     end,
 })
 
 MoveTab:CreateSlider({
-    Name = "Walk Speed (mode jalan kaki)",
-    Range = { 16, 120 },
+    Name = "WalkSpeed (Kecepatan Jalan Kaki)",
+    Range = { 16, 100 },
     Increment = 1,
-    CurrentValue = 34,
+    CurrentValue = 32,
     Callback = function(v)
         State.WalkSpeed = v
-        applyWalkSpeed()
+        local hum = getHumanoid()
+        if hum then hum.WalkSpeed = v end
     end,
 })
 
 MoveTab:CreateButton({
-    Name = "Tes Terbang (naik 60 studs ke depan)",
+    Name = "Aktifkan Pedang Terbang Sekarang",
     Callback = safeRun(function()
-        task.spawn(function()
-            local root = getRootPart()
-            if not root then return end
-            flyTo(root.Position + flat(root.CFrame.LookVector) * 60 + Vector3.new(0, 40, 0), 6)
-            notifyOk("Tes Terbang", "Selesai.")
-        end)
+        startFlight()
+        notify("Sword", "Mode terbang pedang aktif.")
     end),
 })
 
 MoveTab:CreateButton({
-    Name = "Mendarat / Matikan Mode Terbang",
-    Callback = function()
-        Travel.Cancelled = true
-        endFlight()
-        notifyOk("Flight", "Mode terbang dimatikan.")
-    end,
-})
-
-MoveTab:CreateSection("Informasi Pedang")
-MoveTab:CreateLabel("Status pedang terbang dicek otomatis saat perjalanan dimulai.")
-
--- ═══════════════════════════════════════════
---  TAB 3: EVENT & FESTIVAL
--- ═══════════════════════════════════════════
-local EventTab = Window:CreateTab("Event & Festival", "zap", "Event")
-EventTab:CreateSection("Sky Lantern Hunter")
-
-EventTab:CreateToggle({
-    Name = "Auto Sky Lantern (terbang & kumpulkan)",
-    CurrentValue = false,
-    Callback = function(v)
-        State.AutoLantern = v
-        if v then
-            notifyOk("Sky Lantern", "Berburu lentera aktif.")
-            task.spawn(lanternLoop)
-        else
-            notifyOk("Sky Lantern", "Berburu lentera nonaktif.")
-        end
-    end,
-})
-
-EventTab:CreateButton({
-    Name = "Kumpulkan Sky Lantern Sekali Jalan",
+    Name = "Mendarat & Matikan Pedang",
     Callback = safeRun(function()
-        task.spawn(function()
-            local n = collectLanterns()
-            notifyOk("Sky Lantern", n .. " lentera diproses.")
-        end)
-    end),
-})
-
-EventTab:CreateSection("Festival Shop")
-EventTab:CreateInput({
-    Name = "Nama Item",
-    PlaceholderText = "Contoh: Sky Lantern Charm",
-    Callback = function(text)
-        State.ShopItem = text
-    end,
-})
-
-EventTab:CreateToggle({
-    Name = "Auto Beli Item Festival",
-    CurrentValue = false,
-    Callback = function(v)
-        State.AutoShop = v
-        if v then
-            notifyOk("Festival Shop", "Pembelian otomatis aktif untuk: " .. (State.ShopItem ~= "" and State.ShopItem or "(item belum diisi)"))
-            task.spawn(shopLoop)
-        else
-            notifyOk("Festival Shop", "Pembelian otomatis nonaktif.")
-        end
-    end,
-})
-
-EventTab:CreateButton({
-    Name = "Beli Sekarang",
-    Callback = safeRun(function()
-        task.spawn(function()
-            shopBuy(State.ShopItem)
-        end)
+        stopFlight()
+        notify("Sword", "Mode terbang pedang dimatikan.")
     end),
 })
 
 -- ═══════════════════════════════════════════
---  TAB 4: TALENT
+--  TAB 3: TALENT GACHA FAST ROLL (CATEGORY: Main)
 -- ═══════════════════════════════════════════
-local TalentTab = Window:CreateTab("Talent Gacha", "diamond", "Talent")
-TalentTab:CreateSection("Fast Roll")
-TalentTab:CreateLabel("Token talent dibaca otomatis; loop berhenti sendiri saat token habis.")
+local TalentTab = Window:CreateTab("Talent Gacha", "gem", "Main")
+TalentTab:CreateSection("Fast Roll Talent Otomatis")
 
 TalentTab:CreateDropdown({
-    Name = "Tier Incaran",
-    Options = { "Mythic", "Legend", "Divine", "Immortal", "Godly" },
+    Name = "Pilih Rarity Incaran (Berhenti Jika Dapat)",
+    Options = { "Mythic", "Legendary", "Divine", "Immortal", "Godly" },
     CurrentValue = "Mythic",
     Callback = function(v)
         State.TalentTier = v
@@ -2064,292 +1513,245 @@ TalentTab:CreateDropdown({
 })
 
 TalentTab:CreateInput({
-    Name = "Nama Talent Spesifik (opsional)",
-    PlaceholderText = "Contoh: Sword Saint",
+    Name = "Target Nama Talent Khusus (Opsional)",
+    PlaceholderText = "Contoh: Sword Saint / Immortal Body",
     Callback = function(text)
         State.TargetTalent = text
     end,
 })
 
 TalentTab:CreateSlider({
-    Name = "Jeda antar Roll (detik)",
-    Range = { 0.1, 2 },
+    Name = "Kecepatan Roll (Detik)",
+    Range = { 0.1, 1.5 },
     Increment = 0.05,
     Suffix = " s",
-    CurrentValue = 0.45,
+    CurrentValue = 0.35,
     Callback = function(v)
         State.RollDelay = v
     end,
 })
 
 TalentTab:CreateToggle({
-    Name = "Auto Gacha (fast roll sampai target)",
+    Name = "Auto Roll Talent (Fast Gacha)",
     CurrentValue = false,
     Callback = function(v)
         State.AutoGacha = v
         if v then
-            notifyOk("Talent", "Fast roll aktif. Berhenti otomatis saat target didapat.")
-            task.spawn(gachaLoop)
+            notify("Talent", "Fast Gacha aktif! Berhenti otomatis bila dapat target.")
+            task.spawn(talentGachaLoop)
         else
-            notifyOk("Talent", "Fast roll dihentikan.")
+            notify("Talent", "Fast Gacha dimatikan.")
         end
     end,
 })
 
 TalentTab:CreateButton({
-    Name = "Roll Satu Kali",
+    Name = "Roll 1x Sekarang",
     Callback = safeRun(function()
         task.spawn(function()
-            clickGuiButton({ "talent" })
-            task.wait(0.4)
-            local hit = rollTalentOnce()
-            notifyOk("Talent", hit and "Target cocok terdeteksi!" or "Roll dikirim.")
+            local hit, name = rollTalentFast()
+            notify("Talent Roll", hit and ("Dapat target: " .. tostring(name)) or "Roll selesai dikirim.")
         end)
     end),
 })
 
-TalentTab:CreateButton({
-    Name = "Hentikan Fast Roll",
-    Callback = function()
-        State.AutoGacha = false
+-- ═══════════════════════════════════════════
+--  TAB 4: EVENT & FESTIVAL (CATEGORY: Main)
+-- ═══════════════════════════════════════════
+local EventTab = Window:CreateTab("Event Festival", "zap", "Main")
+EventTab:CreateSection("Sky Lantern Hunter (Berburu Lentera)")
+
+EventTab:CreateToggle({
+    Name = "Auto Ambil Sky Lantern (Terbang Koleksi)",
+    CurrentValue = false,
+    Callback = function(v)
+        State.AutoLantern = v
+        if v then
+            notify("Lantern", "Berburu lentera aktif.")
+            task.spawn(function()
+                while State.AutoLantern do
+                    collectSkyLanterns()
+                    task.wait(3.0)
+                end
+            end)
+        end
+    end,
+})
+
+EventTab:CreateButton({
+    Name = "Ambil Semua Sky Lantern di Map Sekali Jalan",
+    Callback = safeRun(function()
+        task.spawn(function()
+            local n = collectSkyLanterns()
+            notify("Lantern", "Selesai mengambil " .. n .. " Sky Lantern.")
+        end)
+    end),
+})
+
+EventTab:CreateSection("Festival Shop (Item Sudah Disediakan)")
+EventTab:CreateDropdown({
+    Name = "Pilih Item Festival untuk Dibeli",
+    Options = { "Sky Lantern Charm", "Sky Lantern Aura", "Festival Token", "Lantern Fire" },
+    CurrentValue = "Sky Lantern Charm",
+    Callback = function(v)
+        State.ShopItem = v
+    end,
+})
+
+EventTab:CreateButton({
+    Name = "Beli Sky Lantern Charm Sekarang",
+    Callback = safeRun(function()
+        task.spawn(function()
+            buyShopItem("Sky Lantern Charm")
+            notify("Shop", "Perintah beli Sky Lantern Charm dikirim.")
+        end)
+    end),
+})
+
+EventTab:CreateToggle({
+    Name = "Auto Beli Item Festival Terpilih",
+    CurrentValue = false,
+    Callback = function(v)
+        State.AutoShop = v
+        if v then
+            task.spawn(function()
+                while State.AutoShop do
+                    buyShopItem(State.ShopItem)
+                    task.wait(6.0)
+                end
+            end)
+        end
     end,
 })
 
 -- ═══════════════════════════════════════════
---  TAB 5: TELEPORT & WORLD
+--  TAB 5: TELEPORT & DAFTAR PULAU (CATEGORY: Main)
 -- ═══════════════════════════════════════════
-local WorldTab = Window:CreateTab("Teleport & World", "navigation", "World")
-WorldTab:CreateSection("Mode Teleport")
+local TpTab = Window:CreateTab("Teleport", "navigation", "Main")
+TpTab:CreateSection("Pilihan Mode Teleport")
 
-WorldTab:CreateDropdown({
-    Name = "Mode",
-    Options = { "Smooth Fly (aman)", "Instant CFrame" },
-    CurrentValue = "Smooth Fly (aman)",
+TpTab:CreateDropdown({
+    Name = "Metode Perjalanan",
+    Options = { "Smooth Fly (Aman)", "Instant CFrame" },
+    CurrentValue = "Smooth Fly (Aman)",
     Callback = function(v)
         State.TeleportMode = v
     end,
 })
 
-WorldTab:CreateSection("Daftar Target (Shared.World & Pulau)")
-WorldTab:CreateDropdown({
-    Name = "Pilih Map / Pulau / Spot",
-    Options = (#TeleportLabels > 0 and TeleportLabels) or { "Belum ada data world" },
-    CurrentValue = (#TeleportLabels > 0 and TeleportLabels[1]) or "Belum ada data world",
-    Callback = function(v)
-        State.TeleportChoice = v
-    end,
-})
-
-local function doTeleportTo(pos, label)
-    if not pos then
-        notifyOk("Teleport", "Target tidak ditemukan.")
-        return
-    end
-    task.spawn(function()
-        if State.TeleportMode == "Instant CFrame" or not State.SafeTravel then
-            instantTeleport(pos)
-            notifyOk("Teleport", "Instan ke " .. tostring(label))
-        else
-            log("Terbang menuju " .. tostring(label))
-            local ok = travelTo(pos, { Label = tostring(label), Arrive = 6 })
-            notifyOk("Teleport", (ok and "Tiba di " or "Gagal/berhenti di ") .. tostring(label))
-        end
-    end)
-end
-
-WorldTab:CreateButton({
-    Name = "Teleport ke Target Terpilih",
+TpTab:CreateSection("Akses Cepat Tempat Penting")
+TpTab:CreateButton({
+    Name = "Teleport ke Pulau Saya",
     Callback = safeRun(function()
-        local label = State.TeleportChoice
-        doTeleportTo(label and TeleportTargets[label], label)
-    end),
-})
-
-WorldTab:CreateSection("Cari Target Manual")
-local searchTarget = ""
-
-WorldTab:CreateInput({
-    Name = "Cari Nama Map / Pulau",
-    PlaceholderText = "Contoh: Elder / Pulau / nama map",
-    Callback = function(text)
-        searchTarget = text
-    end,
-})
-
-WorldTab:CreateButton({
-    Name = "Teleport ke Hasil Pencarian",
-    Callback = safeRun(function()
-        if searchTarget == "" then
-            notifyOk("Cari", "Isi nama target dulu.")
-            return
-        end
-        local needle = string.lower(searchTarget)
-        for label, pos in pairs(TeleportTargets) do
-            if string.find(string.lower(label), needle, 1, true) then
-                doTeleportTo(pos, label)
-                return
+        task.spawn(function()
+            refreshIslands()
+            local myIslandName = "Pulau Saya (Island_" .. tostring(LocalPlayer.UserId) .. ")"
+            local pos = IslandTargets[myIslandName]
+            if pos then
+                if State.TeleportMode == "Instant CFrame" then
+                    instantTeleport(pos)
+                else
+                    travelTo(pos, "Pulau Saya", 6)
+                end
+                notify("Teleport", "Tiba di Pulau Saya.")
+            else
+                notify("Teleport", "Pulau belum termuat.")
             end
-        end
-        notifyOk("Cari", "Tidak ada target cocok: " .. searchTarget)
+        end)
     end),
 })
 
-WorldTab:CreateInput({
-    Name = "Koordinat Manual (x,y,z)",
-    PlaceholderText = "120, 45, -300",
-    Callback = function(text)
-        local x, y, z = string.match(text, "(-?%d+%.?%d*)%s*,%s*(-?%d+%.?%d*)%s*,%s*(-?%d+%.?%d*)")
-        if x and y and z then
-            State.ManualPos = Vector3.new(tonumber(x), tonumber(y), tonumber(z))
-        end
+TpTab:CreateButton({
+    Name = "Teleport ke Outer Court Bagua Circle",
+    Callback = safeRun(function()
+        task.spawn(function()
+            local spotPos, spotName = getBestCultivationSpot()
+            if spotPos then
+                if State.TeleportMode == "Instant CFrame" then
+                    instantTeleport(spotPos)
+                else
+                    travelTo(spotPos, spotName or "Bagua Circle", 6)
+                end
+                notify("Teleport", "Tiba di Bagua Circle.")
+            end
+        end)
+    end),
+})
+
+TpTab:CreateSection("Daftar Semua Pulau Pemain & Spot")
+TpTab:CreateDropdown({
+    Name = "Pilih Pulau / Lokasi",
+    Options = (#IslandNames > 0 and IslandNames) or { "Memuat pulau..." },
+    CurrentValue = (#IslandNames > 0 and IslandNames[1]) or "Memuat pulau...",
+    Callback = function(v)
+        State.SelectedIsland = v
     end,
 })
 
-WorldTab:CreateButton({
-    Name = "Teleport ke Koordinat Manual",
+TpTab:CreateButton({
+    Name = "Teleport ke Pulau / Spot Terpilih",
     Callback = safeRun(function()
-        if State.ManualPos then
-            doTeleportTo(State.ManualPos, "koordinat manual")
+        local label = State.SelectedIsland
+        local pos = IslandTargets[label]
+        if pos then
+            task.spawn(function()
+                if State.TeleportMode == "Instant CFrame" then
+                    instantTeleport(pos)
+                else
+                    travelTo(pos, label, 6)
+                end
+                notify("Teleport", "Tiba di " .. label)
+            end)
         else
-            notifyOk("Teleport", "Format koordinat salah.")
+            notify("Teleport", "Pilih pulau terlebih dahulu.")
         end
     end),
 })
 
-WorldTab:CreateButton({
-    Name = "Refresh Daftar Target",
+TpTab:CreateButton({
+    Name = "Refresh Daftar Pulau di Server",
     Callback = safeRun(function()
-        buildTeleportTargets()
-        notifyOk("World", #TeleportLabels .. " target terdeteksi. Gunakan pencarian untuk target baru.")
+        refreshIslands()
+        notify("Pulau", "Berhasil memperbarui " .. #IslandNames .. " lokasi.")
     end),
 })
 
 -- ═══════════════════════════════════════════
---  TAB 6: DIAGNOSTIK
+--  TAB 6: DIAGNOSTIK & LOG (CATEGORY: Config)
 -- ═══════════════════════════════════════════
-local DiagTab = Window:CreateTab("Diagnostik", "activity", "Diagnostik")
-DiagTab:CreateSection("Log Aktivitas")
-State.LogLabel = createInfoLabel(DiagTab, 130)
+local DiagTab = Window:CreateTab("Diagnostik", "activity", "Config")
+DiagTab:CreateSection("Log Aktivitas Real-time")
+State.LogLabel = createInfoCard(DiagTab, 120)
 State.LogLabel.Text = "Belum ada aktivitas."
 
-DiagTab:CreateSection("Pemetaan Game")
+DiagTab:CreateSection("Pemeriksaan Objek Game")
 DiagTab:CreateButton({
-    Name = "Pindai Struktur Game (remotes & shared)",
+    Name = "Pindai Bagua Circle & Spot Sekitar",
     Callback = safeRun(function()
-        local remotes = {}
-        if RemoteFolder then
-            for _, r in ipairs(RemoteFolder:GetChildren()) do
-                table.insert(remotes, r.Name .. " [" .. r.ClassName .. "]")
-            end
+        local circles = findBaguaCircles()
+        log("Ditemukan " .. #circles .. " Bagua Circle di Workspace.")
+        for i, c in ipairs(circles) do
+            log("  #" .. i .. " " .. c.Name .. " (x" .. tostring(c.Multiplier) .. " Qi)")
         end
-        local modules = {}
-        if SharedFolder then
-            for _, m in ipairs(SharedFolder:GetChildren()) do
-                table.insert(modules, m.Name)
-            end
-        end
-        log("Remotes (" .. #remotes .. "): " .. table.concat(remotes, ", "))
-        log("Shared (" .. #modules .. "): " .. table.concat(modules, ", "))
-        log("Realm terbaca: " .. tostring(#RealmList) .. " entri; Qi: " .. string.format("%.1f", State.Qi))
-        log("Pedang terbang: " .. tostring(hasFlyingSword()) .. "; Pil: " .. countPill())
-    end),
-})
-
-DiagTab:CreateSection("Kalibrasi Nama Aksi Remote")
-DiagTab:CreateParagraph({
-    Title = "Kalau aksi tidak bereaksi",
-    Content = "Isi nama aksi yang benar sesuai game, lalu ulangi fitur terkait. Nama default boleh dikosongkan.",
-})
-
-local OVERRIDE_FIELDS = {
-    { key = "Rebirth", label = "Aksi Rebirth" },
-    { key = "Breakthrough", label = "Aksi Breakthrough" },
-    { key = "Meditate", label = "Aksi Meditasi" },
-    { key = "Harvest", label = "Aksi Petik Herbal" },
-    { key = "Brew", label = "Aksi Racik (Cauldron)" },
-    { key = "RollTalent", label = "Aksi Roll Talent" },
-}
-
-for _, field in ipairs(OVERRIDE_FIELDS) do
-    DiagTab:CreateInput({
-        Name = field.label .. " (default: " .. ActionNames[field.key] .. ")",
-        PlaceholderText = ActionNames[field.key],
-        Callback = function(text)
-            if text ~= "" then
-                ActionNames[field.key] = text
-                log("Override " .. field.key .. " = " .. text)
-            end
-        end,
-    })
-end
-
-DiagTab:CreateButton({
-    Name = "Reset Semua Nama Aksi ke Default",
-    Callback = function()
-        ActionNames.Rebirth = "Rebirth"
-        ActionNames.Breakthrough = "Breakthrough"
-        ActionNames.Meditate = "Meditate"
-        ActionNames.Harvest = "Harvest"
-        ActionNames.Brew = "Brew"
-        ActionNames.RollTalent = "RollTalent"
-        log("Nama aksi dikembalikan ke default.")
-    end,
-})
-
-DiagTab:CreateSection("Kirim Aksi Manual")
-local manualAction = ""
-DiagTab:CreateInput({
-    Name = "Nama Aksi Remote",
-    PlaceholderText = "Contoh: Breakthrough",
-    Callback = function(text)
-        manualAction = text
-    end,
-})
-
-DiagTab:CreateButton({
-    Name = "Fire Aksi Manual ke Remotes.Action",
-    Callback = safeRun(function()
-        if manualAction == "" then return end
-        local ok = fireAction(manualAction)
-        log("Manual: FireServer('" .. manualAction .. "') -> " .. tostring(ok))
-    end),
-})
-
-DiagTab:CreateButton({
-    Name = "Pindai ProximityPrompt Terdekat",
-    Callback = safeRun(function()
-        local root = getRootPart()
-        if not root then return end
-        local prompt, dist = findPromptNear(root.Position, 60)
-        if prompt then
-            log("Prompt: " .. tostring(prompt.Parent and prompt.Parent.Name) .. " (" .. string.format("%.0f", dist) .. " studs) aksi=" .. tostring(prompt.ActionText))
-        else
-            log("Tidak ada ProximityPrompt dalam 60 studs.")
-        end
+        local cauldron = findCauldron()
+        log("Cauldron: " .. (cauldron and "Ditemukan" or "Tidak ditemukan"))
+        local elder = findElderYun()
+        log("Elder Yun: " .. (elder and "Ditemukan" or "Tidak ditemukan"))
+        refreshIslands()
+        log("Total pulau terdeteksi: " .. #IslandNames)
     end),
 })
 
 -- ═══════════════════════════════════════════
---  STARTUP
+--  STARTUP NOTIFICATION
 -- ═══════════════════════════════════════════
-statusLoop()
-
 task.spawn(function()
-    task.wait(0.3)
+    task.wait(0.5)
     refreshPlayerState()
-    log("Realm terbaca: " .. tostring(State.Realm) .. " | Qi: " .. string.format("%.1f", State.Qi) .. "%")
-    log("Shared module: Realms=" .. tostring(safeReq("Realms") ~= nil) .. " Alchemy=" .. tostring(safeReq("Alchemy") ~= nil) .. " World=" .. tostring(safeReq("World") ~= nil))
-    if not Remotes.Action then
-        log("PERINGATAN: ReplicatedStorage.Remotes.Action tidak ditemukan — fitur server butuh kalibrasi.")
-    end
-    if not hasFlyingSword() then
-        log("Pedang terbang tidak terdeteksi di inventory — perjalanan memakai jalan kaki.")
-    end
+    log("Inisialisasi selesai. Realm: " .. tostring(State.Realm) .. " (Qi: " .. string.format("%.1f", State.Qi) .. "%)")
+    Window:Notify({
+        Title = "Unionsal Hub",
+        Content = "Cultivation Legends v2.0 Siap! Fitur Bagua Circle & Sword Flight Aktif.",
+        Duration = 5,
+    })
 end)
-
-task.wait(0.5)
-Window:Notify({
-    Title = "unionsal",
-    Content = "Cultivation Legends v1.0 aktif. Kalibrasi remote lewat tab Diagnostik bila ada aksi yang tidak jalan.",
-    Duration = 6,
-})
