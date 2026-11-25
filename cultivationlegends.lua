@@ -1003,31 +1003,133 @@ local function scanSharedLocations()
     if d then walk(d, "Dungeon", "Dungeon", 0) end
 end
 
+-- ═══════════════════════════════════════════
+--  DATA LOKASI KULTIVASI REAL (dari Workspace scan langsung in-game)
+--  Source: Workspace.Map.Formations.*, Workspace.Map.Village.*, dst.
+--  Realm order: Body Tempering(1) → Qi Gathering(2) → Foundation Est.(3)
+--               → Golden Core(4) → Nascent Soul(5) → Heavenly Being(6)
+--               → Great Heavenly Being(7) → Heavenly Lord(8) → Immortal(9)
+-- ═══════════════════════════════════════════
+local CULTIVATION_SPOTS_HARDCODED = {
+    -- { name, workspacePath, center, standOffset, multiplier, realmIndex }
+    -- realmIndex: 1=BodyTemp, 2=QiGath, 3=FoundEst, 4=GoldCore,
+    --              5=NascentSoul, 6=HeavenlyBeing, 7=GreatHeavenly, 8=HeavenlyLord, 9=Immortal
+    {
+        Name       = "Stone of First Breath",
+        Path       = {"Map","Village","FirstBreathStone"},
+        Center     = Vector3.new(-1.8, 6.3, 304.0),
+        Multiplier = 1.5,
+        RealmIndex = 1,   -- Body Tempering
+    },
+    {
+        Name       = "Outer Court Bagua Circle",
+        Path       = {"Map","Formations","plaza"},
+        Center     = Vector3.new(0.0, 67.2, 30.0),
+        Multiplier = 3,
+        RealmIndex = 2,   -- Qi Gathering
+    },
+    {
+        Name       = "Contemplation Cliff",
+        Path       = {"Map","Formations","cliff"},
+        Center     = Vector3.new(-196.0, 66.0, -24.0),
+        Multiplier = 5,
+        RealmIndex = 2,   -- Qi Gathering (Layer 3+)
+    },
+    {
+        Name       = "Jade Formation",
+        Path       = {"Map","Islands","JadePeak"},
+        Center     = Vector3.new(482.0, 126.3, -120.4),
+        Multiplier = 10,
+        RealmIndex = 3,   -- Foundation Establishment
+    },
+    {
+        Name       = "Golden Formation",
+        Path       = {"Map","Islands","GoldTerrace"},
+        Center     = Vector3.new(697.6, 291.3, -448.8),
+        Multiplier = 22,
+        RealmIndex = 4,   -- Golden Core
+    },
+    {
+        Name       = "Cloud Formation",
+        Path       = {"Map","HeavenCity","Plaza"},
+        Center     = Vector3.new(520.0, 509.9, -780.0),
+        Multiplier = 50,
+        RealmIndex = 6,   -- Heavenly Being (skip 5=Nascent if no spot)
+    },
+    {
+        Name       = "Heaven's Threshold",
+        Path       = {"Map","HeavenCity","GreatHeavenSummit"},
+        Center     = Vector3.new(449.1, 535.7, -902.9),
+        Multiplier = 110,
+        RealmIndex = 7,   -- Great Heavenly Being
+    },
+    {
+        Name       = "Lord's Peak",
+        Path       = {"Map","HeavenCity","LordPeak"},
+        Center     = Vector3.new(532.1, 597.4, -939.1),
+        Multiplier = 250,
+        RealmIndex = 8,   -- Heavenly Lord
+    },
+    {
+        Name       = "Penglai, Isle of Immortals",
+        Path       = {"Map","ImmortalIsle"},
+        Center     = Vector3.new(-215.3, 502.7, -709.7),
+        Multiplier = 550,
+        RealmIndex = 9,   -- Immortal
+    },
+}
+
+-- Ambil posisi live dari Workspace jika model masih ada, fallback ke hardcoded
+local function getLivePosForSpot(spot)
+    local ok, pos = pcall(function()
+        local cur = workspace
+        for _, p in ipairs(spot.Path) do
+            cur = cur:FindFirstChild(p)
+            if not cur then return nil end
+        end
+        if cur:IsA("BasePart") then return cur.Position end
+        if cur:IsA("Model") then return cur:GetPivot().Position end
+        local part = cur:FindFirstChildWhichIsA("BasePart", true)
+        return part and part.Position or nil
+    end)
+    return (ok and pos) and pos or spot.Center
+end
+
 local function scanBaguaCircles()
     BaguaSpots = {}
     local seenPos = {}
 
     local function addCircle(name, rawPos, mult, reqRealm, locked)
         if not rawPos then return end
-        -- Dedup berdasarkan jarak < 12 studs
         for _, sp in ipairs(seenPos) do
             if (sp - rawPos).Magnitude < 12 then return end
         end
         table.insert(seenPos, rawPos)
-
-        -- Jangan berdiri tepat di tengah pedupaan/incense; beri offset kecil 5 studs di tepi lingkaran
-        local standPos = rawPos + Vector3.new(0, 0, 5.5)
+        -- Berdiri 5 studs di depan spot agar tidak stuck di dalam objek
+        local standPos = rawPos + Vector3.new(0, 1, 5.5)
         table.insert(BaguaSpots, {
-            Name = name,
-            CenterPos = rawPos,
-            Position = standPos,
+            Name       = name,
+            CenterPos  = rawPos,
+            Position   = standPos,
             Multiplier = mult or 1,
-            RealmReq = reqRealm or 1,
-            Locked = locked or false,
+            RealmReq   = reqRealm or 1,
+            Locked     = locked or false,
         })
     end
 
-    -- 1. Scan semua BillboardGui & SurfaceGui di Workspace DAN PlayerGui (cek Adornee maupun Parent!)
+    -- 1. HARDCODED DATA REAL dari scan in-game (paling reliable!)
+    for _, spot in ipairs(CULTIVATION_SPOTS_HARDCODED) do
+        local livePos = getLivePosForSpot(spot)
+        addCircle(
+            spot.Name,
+            livePos,
+            spot.Multiplier,
+            spot.RealmIndex,
+            false
+        )
+    end
+
+    -- 2. Scan tambahan dari BillboardGui / SurfaceGui (kalau ada spot baru/event)
     local containers = { workspace }
     local pg = getPlayerGui()
     if pg then table.insert(containers, pg) end
@@ -1047,19 +1149,17 @@ local function scanBaguaCircles()
                     local low = string.lower(joined)
                     if string.find(low, "bagua", 1, true)
                         or string.find(low, "qi gathering", 1, true)
-                        or string.find(low, "x%d+%s*qi")
+                        or string.find(low, "formation", 1, true)
                         or string.find(low, "outer court", 1, true)
-                        or string.find(low, "inner court", 1, true)
-                        or string.find(low, "core court", 1, true)
-                        or string.find(low, "meditat", 1, true) then
-
+                        or string.find(low, "contemplation", 1, true)
+                        or string.find(low, "penglai", 1, true) then
                         local p = posOf(host)
                         if p then
                             local title = texts[1] or host.Name
-                            local mult = tonumber(string.match(low, "x(%d+)%s*qi")) or tonumber(string.match(low, "(%d+)x%s*qi")) or 3
-                            local isLocked = string.find(low, "lock", 1, true) ~= nil or string.find(low, "require", 1, true) ~= nil
-                            local reqRealm = tonumber(string.match(low, "realm%s*(%d+)")) or 1
-                            addCircle(title, p, mult, reqRealm, isLocked)
+                            local mult = tonumber(string.match(low, "×(%d+)%s*qi"))
+                                or tonumber(string.match(low, "x(%d+)%s*qi"))
+                                or 3
+                            addCircle(title, p, mult, 1, false)
                         end
                     end
                 end
@@ -1067,33 +1167,16 @@ local function scanBaguaCircles()
         end
     end
 
-    -- 2. Scan langsung Model/Part di Workspace yang bernama Bagua / QiGathering / Court / Lotus
-    local kwList = { "bagua", "qigathering", "qi_gathering", "outercourt", "innercourt", "corecourt", "meditationspot", "lotus" }
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if (obj:IsA("Model") or obj:IsA("BasePart")) and not isPlayerCharacterDescendant(obj) then
-            local norm = normalizeStr(obj.Name)
-            for _, kw in ipairs(kwList) do
-                if string.find(norm, kw, 1, true) then
-                    local p = posOf(obj)
-                    if p then
-                        local mult = obj:GetAttribute("Multiplier") or obj:GetAttribute("QiMultiplier") or 1
-                        local req = obj:GetAttribute("RequiredRealm") or obj:GetAttribute("MinRealm") or 1
-                        addCircle(obj.Name, p, tonumber(mult) or 1, tonumber(req) or 1, false)
-                        break
-                    end
-                end
-            end
-        end
-    end
-
-    -- 3. Gabungkan juga spot dari Shared.World / Shared.Lotus jika menyebut Bagua / Qi / Court
+    -- 3. Spot dari Shared.World / Shared.Lotus (jika berhasil ter-require)
     for _, ws in ipairs(WorldSpots) do
         local low = string.lower(ws.Name)
-        if string.find(low, "bagua", 1, true) or string.find(low, "court", 1, true) or string.find(low, "lotus", 1, true) or string.find(low, "qi", 1, true) then
+        if string.find(low, "bagua", 1, true) or string.find(low, "formation", 1, true)
+            or string.find(low, "court", 1, true) or string.find(low, "penglai", 1, true) then
             addCircle(ws.Name, ws.Position, ws.Multiplier, ws.RealmReq, false)
         end
     end
 
+    -- Urutkan: multiplier terbesar dulu (spot terkuat duluan)
     table.sort(BaguaSpots, function(a, b)
         if a.Multiplier == b.Multiplier then
             return a.RealmReq < b.RealmReq
@@ -1181,15 +1264,95 @@ local function scanIslands()
 end
 
 -- Pilih spot kultivasi terbaik sesuai ranah kultivasi user
-local function getBestCultivationSpot()
-    scanBaguaCircles()
-    if #BaguaSpots > 0 then
-        for _, spot in ipairs(BaguaSpots) do
-            if not spot.Locked and (spot.RealmReq or 1) <= (State.RealmIndex or 1) then
-                return spot.Position, spot.Name .. " (x" .. tostring(spot.Multiplier) .. " Qi)"
+-- Realm name → index mapping (berdasarkan head label scan dari game)
+local REALM_NAME_TO_INDEX = {
+    ["body tempering"]        = 1,
+    ["bodytemper"]            = 1,
+    ["qi gathering"]          = 2,
+    ["qigathering"]           = 2,
+    ["foundation establishment"] = 3,
+    ["foundationestablishment"] = 3,
+    ["foundation"]            = 3,
+    ["golden core"]           = 4,
+    ["goldencore"]            = 4,
+    ["nascent soul"]          = 5,
+    ["nascentsoul"]           = 5,
+    ["heavenly being"]        = 6,
+    ["heavenlybeing"]         = 6,
+    ["great heavenly being"]  = 7,
+    ["greatheavenly"]         = 7,
+    ["heavenly lord"]         = 8,
+    ["heavenlylord"]          = 8,
+    ["immortal"]              = 9,
+}
+
+local function getRealmIndex()
+    -- Coba baca dari State (sudah di-set oleh reader)
+    if State.RealmIndex and State.RealmIndex > 0 then
+        return State.RealmIndex
+    end
+    -- Fallback: baca dari head label karakter
+    local char = getCharacter()
+    if char then
+        local head = char:FindFirstChild("Head")
+        if head then
+            for _, gui in ipairs(head:GetChildren()) do
+                if gui:IsA("BillboardGui") or gui:IsA("SurfaceGui") then
+                    for _, lbl in ipairs(gui:GetDescendants()) do
+                        if lbl:IsA("TextLabel") and lbl.Text ~= "" then
+                            local low = string.lower(lbl.Text)
+                            for name, idx in pairs(REALM_NAME_TO_INDEX) do
+                                if string.find(low, name, 1, true) then
+                                    State.RealmIndex = idx
+                                    return idx
+                                end
+                            end
+                        end
+                    end
+                end
             end
         end
-        return BaguaSpots[1].Position, BaguaSpots[1].Name
+    end
+    -- Fallback: leaderstats
+    local ls = LocalPlayer:FindFirstChild("leaderstats")
+    if ls then
+        local realm = ls:FindFirstChild("Realm") or ls:FindFirstChild("Stage") or ls:FindFirstChild("Cultivation")
+        if realm then
+            local low = string.lower(tostring(realm.Value or ""))
+            for name, idx in pairs(REALM_NAME_TO_INDEX) do
+                if string.find(low, name, 1, true) then
+                    State.RealmIndex = idx
+                    return idx
+                end
+            end
+        end
+    end
+    return State.RealmIndex or 1
+end
+
+local function getBestCultivationSpot()
+    scanBaguaCircles()
+    local realmIdx = getRealmIndex()
+
+    if #BaguaSpots > 0 then
+        -- Cari spot terkuat yang masih sesuai realm (RealmReq <= realmIdx)
+        local bestSpot = nil
+        for _, spot in ipairs(BaguaSpots) do
+            -- BaguaSpots sudah diurutkan Multiplier terbesar dulu
+            -- Ambil yang realmnya <= realm kita (bisa masuk ke sana)
+            if not spot.Locked and (spot.RealmReq or 1) <= realmIdx then
+                bestSpot = spot
+                break
+            end
+        end
+        if bestSpot then
+            return bestSpot.Position, bestSpot.Name .. " (×" .. tostring(bestSpot.Multiplier) .. " Qi)"
+        end
+        -- Fallback: spot pertama (terendah realmnya = paling mudah diakses)
+        local fallback = BaguaSpots[#BaguaSpots]
+        if fallback then
+            return fallback.Position, fallback.Name
+        end
     end
 
     -- Fallback ke Pulau Saya
