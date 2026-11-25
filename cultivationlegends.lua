@@ -456,31 +456,32 @@ local function isActuallyVisible(obj)
     if not obj or not obj.Parent then return false end
     local cur = obj
     while cur and cur ~= game do
-        if cur:IsA("ScreenGui") then
+        if cur:IsA("LayerCollector") or cur:IsA("ScreenGui") or cur:IsA("BillboardGui") or cur:IsA("SurfaceGui") then
             return cur.Enabled == true
         elseif cur:IsA("GuiObject") then
             if cur.Visible == false then return false end
         end
         cur = cur.Parent
     end
-    return false
+    return true
 end
 
 local function triggerButton(btn)
-    if not btn or not (btn:IsA("TextButton") or btn:IsA("ImageButton")) then return false end
+    if not btn then return false end
+    if not (btn:IsA("GuiButton") or btn:IsA("GuiObject")) then return false end
     local fired = false
 
     -- 1. firesignal (executor native)
-    if type(firesignal) == "function" then
-        for _, sigName in ipairs({ "MouseButton1Click", "Activated", "MouseButton1Down", "MouseButton1Up" }) do
+    if type(firesignal) == "function" and btn:IsA("GuiButton") then
+        for _, sigName in ipairs({ "Activated", "MouseButton1Click", "MouseButton1Down", "MouseButton1Up" }) do
             local ok = pcall(function() firesignal(btn[sigName]) end)
             if ok then fired = true end
         end
     end
 
     -- 2. getconnections fallback
-    if type(getconnections) == "function" then
-        for _, sigName in ipairs({ "MouseButton1Click", "Activated", "MouseButton1Down" }) do
+    if type(getconnections) == "function" and btn:IsA("GuiButton") then
+        for _, sigName in ipairs({ "Activated", "MouseButton1Click", "MouseButton1Down" }) do
             local okC, conns = pcall(getconnections, btn[sigName])
             if okC and type(conns) == "table" then
                 for _, conn in ipairs(conns) do
@@ -494,19 +495,28 @@ local function triggerButton(btn)
     end
 
     -- 3. Activate()
-    pcall(function() btn:Activate() end)
+    if btn:IsA("GuiButton") then
+        pcall(function() btn:Activate() end)
+    end
 
-    -- 4. VirtualInputManager click WITH GuiInset if visible on screen
-    if VirtualInputManager and isActuallyVisible(btn) then
+    -- 4. VirtualInputManager click WITH and WITHOUT GuiInset
+    if VirtualInputManager and btn:IsA("GuiObject") then
         pcall(function()
-            local inset = Vector2.zero
-            pcall(function() inset = GuiService:GetGuiInset() end)
-            local pos = btn.AbsolutePosition + (btn.AbsoluteSize * 0.5) + inset
+            local pos = btn.AbsolutePosition + (btn.AbsoluteSize * 0.5)
             if pos.X > 0 and pos.Y > 0 then
                 VirtualInputManager:SendMouseButtonEvent(pos.X, pos.Y, 0, true, game, 1)
                 task.wait(0.03)
                 VirtualInputManager:SendMouseButtonEvent(pos.X, pos.Y, 0, false, game, 1)
                 fired = true
+
+                -- Juga coba dengan offset GuiInset
+                local inset = Vector2.zero
+                pcall(function() inset = GuiService:GetGuiInset() end)
+                if inset.Y > 0 then
+                    VirtualInputManager:SendMouseButtonEvent(pos.X, pos.Y + inset.Y, 0, true, game, 1)
+                    task.wait(0.03)
+                    VirtualInputManager:SendMouseButtonEvent(pos.X, pos.Y + inset.Y, 0, false, game, 1)
+                end
             end
         end)
     end
@@ -1021,27 +1031,50 @@ local function readRealmFromHead()
 end
 
 local function refreshPlayerState()
-    -- 1. Prioritas: baca langsung dari head label karakter (terbukti ada: "Qi Gathering · 3")
+    -- 1. Prioritas: baca langsung dari head label karakter (terbukti ada: "Qi Gathering · 3", "Nascent Soul · 2")
     local headName, headIdx = readRealmFromHead()
     if headName and headIdx then
         State.Realm = headName
         State.RealmIndex = headIdx
     else
-        -- 2. Fallback: Cek Client.UI.State
-        local stRealm = readStateModuleField({ "Realm", "realm", "RealmName", "RealmIndex", "Stage", "CultivationRealm" })
-        local realmVal = stRealm or attrOf({ "Realm", "RealmName", "CultivationRealm", "Rank", "Stage", "RealmIndex" })
-        if type(realmVal) == "string" and realmVal ~= "" then
-            State.Realm = realmVal
-            local low = string.lower(realmVal)
-            for name, idx in pairs(REALM_TO_IDX) do
-                if string.find(low, name, 1, true) then
-                    State.RealmIndex = idx
-                    break
+        -- 2. Scan banner Realm di CultivationHud (terbukti ada di atas layar: "Foundation Establishment", dll)
+        local foundHudRealm = false
+        local pg = getPlayerGui()
+        local hud = pg and pg:FindFirstChild("CultivationHud")
+        if hud then
+            for _, d in ipairs(hud:GetDescendants()) do
+                if d:IsA("TextLabel") and d.Text ~= "" and isActuallyVisible(d) and not (OurGui and d:IsDescendantOf(OurGui)) then
+                    local low = string.lower(d.Text)
+                    for name, idx in pairs(REALM_TO_IDX) do
+                        if string.find(low, name, 1, true) then
+                            State.Realm = name
+                            State.RealmIndex = idx
+                            foundHudRealm = true
+                            break
+                        end
+                    end
+                    if foundHudRealm then break end
                 end
             end
-        elseif type(realmVal) == "number" then
-            State.RealmIndex = clamp(math.floor(realmVal), 1, 9)
-            State.Realm = RealmList[State.RealmIndex] and RealmList[State.RealmIndex].Name or ("Realm " .. State.RealmIndex)
+        end
+
+        -- 3. Fallback: Cek Client.UI.State / Attribute
+        if not foundHudRealm then
+            local stRealm = readStateModuleField({ "Realm", "realm", "RealmName", "RealmIndex", "Stage", "CultivationRealm" })
+            local realmVal = stRealm or attrOf({ "Realm", "RealmName", "CultivationRealm", "Rank", "Stage", "RealmIndex" })
+            if type(realmVal) == "string" and realmVal ~= "" then
+                State.Realm = realmVal
+                local low = string.lower(realmVal)
+                for name, idx in pairs(REALM_TO_IDX) do
+                    if string.find(low, name, 1, true) then
+                        State.RealmIndex = idx
+                        break
+                    end
+                end
+            elseif type(realmVal) == "number" then
+                State.RealmIndex = clamp(math.floor(realmVal), 1, 9)
+                State.Realm = RealmList[State.RealmIndex] and RealmList[State.RealmIndex].Name or ("Realm " .. State.RealmIndex)
+            end
         end
     end
 
@@ -1652,10 +1685,10 @@ local function glideTo(targetPos, arriveDist)
     Travel.Active = true
     Travel.Cancelled = false
 
-    if State.UseSwordFlight then
-        setGameSwordMode(true)
-        task.wait(0.1)
-    end
+    -- Pastikan sword mode game dinonaktifkan agar script game tidak mengunci physics / posisi karakter
+    pcall(setGameSwordMode, false)
+    pcall(clearLeftoverMovers)
+    task.wait(0.05)
 
     root = getRootPart()
     hum = getHumanoid()
@@ -1670,21 +1703,20 @@ local function glideTo(targetPos, arriveDist)
         return true
     end
 
-    local speed = clamp(State.FlySpeed or 150, 45, 450)
-    -- Cruise altitude minimal 45 studs di atas titik tertinggi (start atau target)
-    -- Menjamin selalu terbang bebas di langit terbuka tanpa menabrak tebing pulau
-    local cruiseY = math.max(startPos.Y, finalPos.Y) + math.max(State.NaturalHeight or 35, 45)
+    local speed = clamp(State.FlySpeed or 160, 60, 450)
+    -- Cruise altitude minimal 35 studs di atas titik tertinggi (start atau target)
+    local cruiseY = math.max(startPos.Y, finalPos.Y) + math.max(State.NaturalHeight or 30, 35)
     local waypoints = {
         Vector3.new(startPos.X, cruiseY, startPos.Z),
         Vector3.new(finalPos.X, cruiseY, finalPos.Z),
         finalPos,
     }
-    -- Hanya bypass waypoint jika jarak sangat dekat DAN ketinggian hampir sama (tidak menembus tebing/lantai)
-    if totalDist < 15 and math.abs(startPos.Y - finalPos.Y) < 6 then
+    -- Hanya bypass waypoint jika jarak sangat dekat DAN ketinggian hampir sama
+    if totalDist < 18 and math.abs(startPos.Y - finalPos.Y) < 6 then
         waypoints = { finalPos }
     end
 
-    -- Noclip aktif selama fase terbang agar tidak tersangkut geometri pulau / mesh dalam
+    -- Noclip aktif selama fase terbang agar bebas menembus rintangan
     local noclipConn
     pcall(function()
         noclipConn = RunService.Stepped:Connect(function()
@@ -1700,20 +1732,23 @@ local function glideTo(targetPos, arriveDist)
     end)
 
     local okMove, errMove = pcall(function()
-        hum.PlatformStand = true
+        if hum and hum.Sit then hum.Sit = false end
         for _, wp in ipairs(waypoints) do
             if Travel.Cancelled then break end
             local segStart = os.clock()
             while not Travel.Cancelled do
                 local dt = RunService.Heartbeat:Wait()
                 root = getRootPart()
-                if not root then break end
+                local ch = getCharacter()
+                if not root or not ch then break end
 
                 local pos = root.Position
                 local delta = wp - pos
                 local dist = delta.Magnitude
-                if dist <= 3.0 then
-                    root.CFrame = CFrame.new(wp) * (root.CFrame - root.CFrame.Position)
+                if dist <= 3.5 then
+                    local targetCf = CFrame.new(wp) * (root.CFrame - root.CFrame.Position)
+                    ch:PivotTo(targetCf)
+                    root.CFrame = targetCf
                     break
                 end
                 if os.clock() - segStart > math.max(6, (dist / speed) * 3 + 3) then
@@ -1723,11 +1758,14 @@ local function glideTo(targetPos, arriveDist)
                 local step = math.min(dist, speed * clamp(dt, 0.005, 0.06))
                 local nextPos = pos + (delta / dist) * step
                 local flatDir = flat(delta)
+                local newCf
                 if flatDir.Magnitude > 0.2 then
-                    root.CFrame = CFrame.lookAt(nextPos, nextPos + flatDir)
+                    newCf = CFrame.lookAt(nextPos, nextPos + flatDir)
                 else
-                    root.CFrame = CFrame.new(nextPos) * (root.CFrame - root.CFrame.Position)
+                    newCf = CFrame.new(nextPos) * (root.CFrame - root.CFrame.Position)
                 end
+                ch:PivotTo(newCf)
+                root.CFrame = newCf
                 root.AssemblyLinearVelocity = Vector3.zero
                 root.AssemblyAngularVelocity = Vector3.zero
             end
@@ -1830,6 +1868,9 @@ end
 --  MEDITASI
 -- ═══════════════════════════════════════════
 local function isCurrentlyMeditating()
+    -- Jika sedang aktif bergerak/terbang, pasti tidak sedang meditasi
+    if Travel.Active then return false end
+
     -- 1. Cek Action.Stand di CultivationHud (indikator live paling akurat dari game!)
     -- Tombol "起" (Stand) hanya muncul saat karakter sedang duduk/meditasi
     local pg = getPlayerGui()
@@ -1857,20 +1898,7 @@ local function isCurrentlyMeditating()
         if animator then
             for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
                 local aName = string.lower(track.Animation and track.Animation.Name or "")
-                if string.find(aName, "meditat", 1, true) or string.find(aName, "sit", 1, true) or string.find(aName, "cultivat", 1, true) then
-                    return true
-                end
-            end
-        end
-    end
-
-    -- 3. Cek efek visual aura / runes di sekitar karakter saat meditasi
-    local char = getCharacter()
-    if char then
-        for _, p in ipairs(char:GetDescendants()) do
-            if (p:IsA("ParticleEmitter") or p:IsA("Beam") or p:IsA("BillboardGui")) and p.Enabled then
-                local pName = string.lower(p.Name)
-                if string.find(pName, "meditat", 1, true) or string.find(pName, "aura", 1, true) or string.find(pName, "circle", 1, true) then
+                if string.find(aName, "meditat", 1, true) or string.find(aName, "cultivat", 1, true) then
                     return true
                 end
             end
@@ -1882,14 +1910,6 @@ local function isCurrentlyMeditating()
 
     local stVal = readStateModuleField({ "Meditating", "IsMeditating", "InMeditation" })
     if stVal == true then return true end
-
-    local root = getRootPart()
-    if root then
-        local humSound = root:FindFirstChild("AuraHum")
-        if humSound and humSound:IsA("Sound") and humSound.IsPlaying then
-            return true
-        end
-    end
 
     local stopBtns = findVisibleButtons({ "stop medit", "meditating", "berhenti" })
     if #stopBtns > 0 then return true end
@@ -1981,7 +2001,6 @@ local function startMeditatingAt(spotPos)
 end
 
 local function stopMeditating()
-    if not isCurrentlyMeditating() then return end
     local pg = getPlayerGui()
     local hud = pg and pg:FindFirstChild("CultivationHud")
     local action = hud and hud:FindFirstChild("Action")
@@ -1989,12 +2008,26 @@ local function stopMeditating()
         local standBtn = action:FindFirstChild("Stand")
         local hitStand = standBtn and standBtn:FindFirstChild("Hit")
         if hitStand and isActuallyVisible(hitStand) then
-            triggerButton(hitStand)
-            task.wait(0.2)
+            local isStand = false
+            for _, d in ipairs(standBtn:GetDescendants()) do
+                if d:IsA("TextLabel") and (string.find(string.lower(d.Text), "stand", 1, true) or string.find(d.Text, "起", 1, true)) then
+                    isStand = true
+                    break
+                end
+            end
+            if isStand then
+                triggerButton(hitStand)
+                task.wait(0.2)
+            end
         end
     end
 
-    local clicked = clickVisibleGui({ "stand", "berdiri", "stop medit", "meditating", "meditate" })
+    local hum = getHumanoid()
+    if hum and hum.Sit then
+        hum.Sit = false
+    end
+
+    local clicked = clickVisibleGui({ "stand", "berdiri", "stop medit" })
     if not clicked then
         if Remotes.Meditate then fireRaw(Remotes.Meditate, false) end
         fireAction("StopMeditate")
@@ -2325,10 +2358,9 @@ local function attemptBreakthrough()
     end
 
     -- STEP 4: Konfirmasi jika ada tombol konfirmasi (Yes / Confirm / Ok / 破 / Be Reborn)
-    local rebornBtn = findRebornConfirmButton and findRebornConfirmButton()
-    if rebornBtn then
+    local rebornClicked = clickBeRebornButton and clickBeRebornButton()
+    if rebornClicked then
         log("Memicu konfirmasi 'Be Reborn' di modal...")
-        triggerButton(rebornBtn)
         task.wait(0.5)
     end
 
@@ -2354,7 +2386,7 @@ local function attemptBreakthrough()
     fireAction("Rebirth")
     task.wait(0.6)
 
-    -- STEP 6: Pantau apakah realm berhasil naik (maks 8 detik)
+    -- STEP 6: Pantau apakah realm atau layer berhasil naik (maks 8 detik)
     local t0 = os.clock()
     while os.clock() - t0 < 8 do
         if not State.AutoRebirth then break end
@@ -2364,8 +2396,8 @@ local function attemptBreakthrough()
             task.wait(0.4)
         end
         refreshPlayerState()
-        if State.RealmIndex > beforeIdx or State.Realm ~= beforeName then
-            log("✅ BREAKTHROUGH BERHASIL! Ranah baru: " .. tostring(State.Realm) .. " (Tier " .. State.RealmIndex .. ")")
+        if State.RealmIndex > beforeIdx or State.Realm ~= beforeName or (State.Qi and State.Qi < 30) then
+            log("✅ BREAKTHROUGH BERHASIL! Ranah: " .. tostring(State.Realm) .. " (Tier " .. State.RealmIndex .. ")")
             return true
         end
         task.wait(0.5)
@@ -2379,96 +2411,228 @@ end
 --  MAIN AUTO REBIRTH & MEDITATION LOOP
 -- ═══════════════════════════════════════════
 
--- Cek apakah tombol konfirmasi "Be Reborn" sedang muncul di layar (modal pop-up Rebirth)
-local function findRebornConfirmButton()
+-- Cek apakah modal konfirmasi Rebirth ("Be Reborn") sedang terbuka di layar
+local function isRebornModalOpen()
     local pg = getPlayerGui()
-    if not pg then return nil end
-    for _, btn in ipairs(pg:GetDescendants()) do
-        if (btn:IsA("TextButton") or btn:IsA("ImageButton")) and isActuallyVisible(btn) then
-            if not (OurGui and btn:IsDescendantOf(OurGui)) then
-                -- 1. Cek TextButton.Text langsung
-                if btn:IsA("TextButton") and btn.Text ~= "" then
-                    local t = string.lower(btn.Text)
-                    if string.find(t, "be reborn", 1, true) or t == "reborn" or t == "be rebirth" then
-                        return btn
-                    end
-                end
-
-                -- 2. Cek TextLabel di dalam tombol
-                for _, lbl in ipairs(btn:GetDescendants()) do
-                    if lbl:IsA("TextLabel") and lbl.Text ~= "" then
-                        local t = string.lower(lbl.Text)
-                        if string.find(t, "be reborn", 1, true) or t == "reborn" or t == "be rebirth" then
-                            return btn
-                        end
-                    end
-                end
-
-                -- 3. Cek nama objek tombol
-                local bName = string.lower(btn.Name)
-                local pName = btn.Parent and string.lower(btn.Parent.Name) or ""
-                if (string.find(bName, "reborn", 1, true) or string.find(pName, "reborn", 1, true))
-                    and not string.find(bName, "later", 1, true) and not string.find(pName, "later", 1, true) then
-                    return btn
+    if not pg then return false end
+    for _, d in ipairs(pg:GetDescendants()) do
+        if not (OurGui and d:IsDescendantOf(OurGui)) then
+            if (d:IsA("TextLabel") or d:IsA("TextButton")) and isActuallyVisible(d) and d.Text ~= "" then
+                local low = string.lower(d.Text)
+                if string.find(low, "be reborn", 1, true) or (low == "reborn" and not string.find(low, "later", 1, true)) then
+                    return true
                 end
             end
         end
     end
-    return nil
+    return false
+end
+
+-- Mencari dan mengklik tombol "Be Reborn" pada modal pop-up secara presisi
+local function clickBeRebornButton()
+    local pg = getPlayerGui()
+    if not pg then return false end
+
+    local candidates = {}
+    -- 1. Scan semua TextLabel / TextButton di PlayerGui untuk teks "Be Reborn" (tanpa filter isActuallyVisible agar tidak terhalang container)
+    for _, obj in ipairs(pg:GetDescendants()) do
+        if not (OurGui and obj:IsDescendantOf(OurGui)) then
+            if (obj:IsA("TextLabel") or obj:IsA("TextButton")) and obj.Text ~= "" then
+                local low = string.lower(obj.Text)
+                if string.find(low, "be reborn", 1, true) or (low == "reborn" and not string.find(low, "later", 1, true)) then
+                    table.insert(candidates, obj)
+                end
+            end
+        end
+    end
+
+    -- 2. Scan khusus di CultivationModals
+    local modals = pg:FindFirstChild("CultivationModals")
+    if modals then
+        for _, obj in ipairs(modals:GetDescendants()) do
+            if not (OurGui and obj:IsDescendantOf(OurGui)) then
+                local oName = string.lower(obj.Name)
+                local pName = obj.Parent and string.lower(obj.Parent.Name) or ""
+                if (string.find(oName, "reborn", 1, true) or string.find(pName, "reborn", 1, true)
+                    or string.find(oName, "confirm", 1, true) or string.find(pName, "confirm", 1, true))
+                    and not string.find(oName, "later", 1, true) and not string.find(pName, "later", 1, true) then
+                    table.insert(candidates, obj)
+                end
+            end
+        end
+    end
+
+    if #candidates == 0 then return false end
+
+    local clicked = false
+    for _, obj in ipairs(candidates) do
+        print("[CultivationLegends] Tombol Reborn terdeteksi:", obj:GetFullName(), "Class:", obj.ClassName)
+        log("Memicu konfirmasi 'Be Reborn': " .. obj.Name)
+
+        -- 1. Trigger langsung jika tombol
+        if obj:IsA("TextButton") or obj:IsA("ImageButton") then
+            if triggerButton(obj) then clicked = true end
+        end
+
+        -- 2. Cek child Hit
+        local hitChild = obj:FindFirstChild("Hit")
+        if hitChild and (hitChild:IsA("TextButton") or hitChild:IsA("ImageButton")) then
+            if triggerButton(hitChild) then clicked = true end
+        end
+
+        -- 3. Cek parent dan sibling
+        local parent = obj.Parent
+        if parent then
+            local hitSibling = parent:FindFirstChild("Hit")
+            if hitSibling and (hitSibling:IsA("TextButton") or hitSibling:IsA("ImageButton")) then
+                if triggerButton(hitSibling) then clicked = true end
+            end
+
+            if parent:IsA("TextButton") or parent:IsA("ImageButton") then
+                if triggerButton(parent) then clicked = true end
+            end
+
+            for _, ch in ipairs(parent:GetChildren()) do
+                if (ch:IsA("TextButton") or ch:IsA("ImageButton")) and not string.find(string.lower(ch.Name), "later", 1, true) then
+                    if triggerButton(ch) then clicked = true end
+                end
+            end
+        end
+
+        -- 4. VirtualInputManager click hardware pada koordinat tengah visual
+        pcall(function()
+            local vim = game:GetService("VirtualInputManager")
+            local targetObj = (obj:IsA("GuiObject") and obj) or (parent and parent:IsA("GuiObject") and parent)
+            if vim and targetObj and targetObj.AbsoluteSize.X > 0 and targetObj.AbsoluteSize.Y > 0 then
+                local cx = math.floor(targetObj.AbsolutePosition.X + targetObj.AbsoluteSize.X * 0.5)
+                local cy = math.floor(targetObj.AbsolutePosition.Y + targetObj.AbsoluteSize.Y * 0.5)
+
+                vim:SendMouseButtonEvent(cx, cy, 0, true, game, 1)
+                task.wait(0.04)
+                vim:SendMouseButtonEvent(cx, cy, 0, false, game, 1)
+
+                local inset = Vector2.zero
+                pcall(function() inset = GuiService:GetGuiInset() end)
+                if inset.Y > 0 then
+                    vim:SendMouseButtonEvent(cx, cy + inset.Y, 0, true, game, 1)
+                    task.wait(0.04)
+                    vim:SendMouseButtonEvent(cx, cy + inset.Y, 0, false, game, 1)
+                end
+                clicked = true
+            end
+        end)
+    end
+
+    return clicked
 end
 
 -- Cek apakah tombol Rebirth ("轉") sudah aktif di Action HUD
 local function getRebirthHudButton()
     local pg = getPlayerGui()
-    local hud = pg and pg:FindFirstChild("CultivationHud")
+    if not pg then return nil end
+
+    local hud = pg:FindFirstChild("CultivationHud")
     local action = hud and hud:FindFirstChild("Action")
     if action then
-        local rb = action:FindFirstChild("Rebirth")
-        local hitRb = rb and rb:FindFirstChild("Hit")
-        if hitRb and isActuallyVisible(hitRb) then
-            return hitRb
+        -- 1. Cek langsung tombol bernama Rebirth di Action
+        for _, ch in ipairs(action:GetChildren()) do
+            local low = string.lower(ch.Name)
+            if string.find(low, "rebirth", 1, true) or string.find(low, "reborn", 1, true) then
+                local hit = ch:FindFirstChild("Hit")
+                if hit and isActuallyVisible(hit) then return hit end
+                if isActuallyVisible(ch) and (ch:IsA("TextButton") or ch:IsA("ImageButton")) then return ch end
+            end
+        end
+
+        -- 2. Cek semua TextLabel di Action untuk karakter "轉" atau teks "Rebirth"
+        for _, d in ipairs(action:GetDescendants()) do
+            if d:IsA("TextLabel") and isActuallyVisible(d) and d.Text ~= "" then
+                local low = string.lower(d.Text)
+                if string.find(low, "rebirth", 1, true) or string.find(d.Text, "轉", 1, true) or string.find(low, "reborn", 1, true) then
+                    local p = d.Parent
+                    local hit = p and p:FindFirstChild("Hit")
+                    if hit and isActuallyVisible(hit) then return hit end
+                    if p and (p:IsA("TextButton") or p:IsA("ImageButton")) and isActuallyVisible(p) then return p end
+                    if d:IsA("TextButton") or d:IsA("ImageButton") then return d end
+                end
+            end
         end
     end
+
+    -- 3. Cek di seluruh PlayerGui untuk tombol Rebirth luar
+    for _, btn in ipairs(pg:GetDescendants()) do
+        if not (OurGui and btn:IsDescendantOf(OurGui)) then
+            if btn:IsA("TextButton") or btn:IsA("ImageButton") then
+                local bName = string.lower(btn.Name)
+                local pName = btn.Parent and string.lower(btn.Parent.Name) or ""
+                if (string.find(bName, "rebirth", 1, true) or string.find(pName, "rebirth", 1, true))
+                    and not string.find(bName, "later", 1, true) and isActuallyVisible(btn) then
+                    return btn
+                end
+            end
+        end
+    end
+
     return nil
 end
 
--- Eksekusi Rebirth lengkap: Klik tombol Rebirth di HUD lalu klik "Be Reborn" di modal pop-up
+-- Eksekusi Rebirth lengkap: Buka modal dari HUD jika belum terbuka, lalu klik "Be Reborn"
 local function executeRebirthFlow()
     local beforeIdx = State.RealmIndex
+    log("🔄 Memulai proses Rebirth...")
+    print("[CultivationLegends] executeRebirthFlow dipanggil, Realm saat ini:", State.Realm, "(Tier " .. tostring(beforeIdx) .. ")")
 
-    -- 1. Periksa apakah modal "Be Reborn" sudah terbuka di layar
-    local rebornBtn = findRebornConfirmButton()
-    if rebornBtn then
-        log("Modal Rebirth terdeteksi! Mengklik 'Be Reborn'...")
-        triggerButton(rebornBtn)
-        task.wait(1.0)
-    else
-        -- 2. Jika modal belum terbuka, klik tombol Rebirth ("轉") di HUD
+    -- 1. Buka modal jika belum terbuka
+    if not isRebornModalOpen() then
         local hudBtn = getRebirthHudButton()
         if hudBtn then
-            log("Tombol Rebirth ('轉') terdeteksi di HUD! Membuka modal...")
+            log("Membuka modal Rebirth dari HUD (tombol '轉')...")
+            print("[CultivationLegends] Mengklik tombol Rebirth di HUD:", hudBtn:GetFullName())
             triggerButton(hudBtn)
-            task.wait(0.6)
-
-            -- Cari dan klik tombol "Be Reborn" yang muncul
-            rebornBtn = findRebornConfirmButton()
-            if rebornBtn then
-                log("Mengonfirmasi 'Be Reborn'...")
-                triggerButton(rebornBtn)
-                task.wait(1.0)
-            end
+            task.wait(0.5)
         end
+
+        -- Cadangan shortcut tombol keyboard B untuk membuka Rebirth
+        pressKey(Enum.KeyCode.B)
+        task.wait(0.4)
+
+        -- Cadangan AdminPanel
+        local pg = getPlayerGui()
+        local hud = pg and pg:FindFirstChild("CultivationHud")
+        if hud and hud:FindFirstChild("AdminPanel") then
+            local bRb = hud.AdminPanel:FindFirstChild("B_Rebirth now", true)
+            local hitRb = bRb and bRb:FindFirstChild("Hit")
+            if hitRb then triggerButton(hitRb) end
+        end
+    end
+
+    -- 2. Klik tombol "Be Reborn" di modal pop-up
+    local clickedReborn = clickBeRebornButton()
+    if clickedReborn then
+        log("Tombol 'Be Reborn' berhasil diklik! Menunggu konfirmasi server...")
+        print("[CultivationLegends] Tombol 'Be Reborn' berhasil diklik.")
+    else
+        log("Mencari tombol konfirmasi Rebirth...")
     end
 
     -- 3. Cadangan: Remote / Action Rebirth
     fireAction("Rebirth")
     fireAction("BeReborn")
+    fireAction("ConfirmRebirth")
     if Remotes.Rebirth then fireRaw(Remotes.Rebirth) end
-    pressKey(Enum.KeyCode.B)
 
-    task.wait(1.0)
+    task.wait(1.2)
     refreshPlayerState()
-    return (State.RealmIndex < beforeIdx or State.RealmIndex == 1)
+
+    local success = (State.RealmIndex < beforeIdx or State.RealmIndex == 1)
+    if success then
+        log("🎉 REBIRTH BERHASIL! Ranah baru: " .. tostring(State.Realm) .. " (Tier " .. tostring(State.RealmIndex) .. ")")
+        print("[CultivationLegends] Rebirth sukses! State.RealmIndex =", State.RealmIndex)
+    else
+        print("[CultivationLegends] Rebirth sedang diproses atau menunggu konfirmasi...")
+    end
+
+    return success
 end
 
 -- Cek apakah tombol Breakthrough (Disk dengan 破) sudah aktif di HUD
@@ -2477,7 +2641,6 @@ local function isBreakthroughReady()
     local hud = pg and pg:FindFirstChild("CultivationHud")
     local action = hud and hud:FindFirstChild("Action")
     if action then
-        -- Cek tombol Disk (jika bertuliskan 破 atau Break)
         local disk = action:FindFirstChild("Disk")
         if disk and isActuallyVisible(disk) then
             for _, d in ipairs(disk:GetDescendants()) do
@@ -2538,25 +2701,35 @@ local function autoRebirthLoop()
                 return
             end
 
-            -- PRIORITAS 1: Cek apakah Rebirth sudah siap (tombol "轉" di HUD atau modal "Be Reborn" terbuka)
-            local rebornConfirmBtn = findRebornConfirmButton()
+            -- PRIORITAS 1: Cek apakah Rebirth sudah siap
+            -- Syarat Rebirth game: Nascent Soul Layer 1 (RealmIndex >= 5) ATAU tombol "轉" aktif ATAU modal terbuka!
+            local isRebirthEligible = (State.RealmIndex and State.RealmIndex >= 5)
+            local rebornModalOpen = isRebornModalOpen()
             local hudRebirthBtn = getRebirthHudButton()
 
-            if rebornConfirmBtn or hudRebirthBtn then
-                log("🌟 REBIRTH TERSEDIA! Memulai proses Reinkarnasi...")
+            if isRebirthEligible or rebornModalOpen or hudRebirthBtn then
+                log("🌟 REBIRTH TERSEDIA (Ranah: " .. tostring(State.Realm) .. ")! Memulai proses Reinkarnasi...")
                 State.Step = "Rebirth (Reinkarnasi)"
                 stopMeditating()
                 pcall(setGameSwordMode, false)
                 pcall(clearLeftoverMovers)
-                task.wait(0.35)
+                task.wait(0.3)
 
                 local okRb = executeRebirthFlow()
                 if okRb then
                     log("🎉 REBIRTH SUKSES! Ranah ter-reset dengan multiplier permanen baru!")
-                    notify("Rebirth Sukses", "Karakter berhasil di-Reborn! Memulai kultivasi ranah baru...")
+                    notify("Rebirth Sukses", "Karakter berhasil di-Reborn! Memulai kultivasi dari ranah awal...")
+                    task.wait(1.5)
+                    refreshPlayerState()
+                    local spotPos, spotName = getBestCultivationSpot()
+                    if spotPos then
+                        travelTo(spotPos, spotName or "Stone of First Breath", 5)
+                    end
+                else
+                    log("Sedang memproses Rebirth... Menunggu konfirmasi server.")
                 end
                 task.wait(1.5)
-                return
+                return -- KUNCI UTAMA: Langsung return dari tick ini agar TIDAK PERNAH jatuh ke terbang/kultivasi di ranah lama!
             end
 
             -- PRIORITAS 2: Cek Breakthrough (Qi penuh atau tombol 破 siap)
@@ -2574,9 +2747,24 @@ local function autoRebirthLoop()
                     State.Step = "Ulangi Breakthrough"
                     attemptBreakthrough()
                 else
-                    log("Breakthrough sukses! Bersiap menuju spot ranah baru...")
+                    log("Breakthrough sukses! Memeriksa spot ranah baru...")
+                    refreshPlayerState()
+                    local spotPos, spotName = getBestCultivationSpot()
+                    if spotPos then
+                        local root = getRootPart()
+                        if root and (root.Position - spotPos).Magnitude > 14 then
+                            log("Perpindahan otomatis ke spot ranah baru: " .. tostring(spotName))
+                            State.Step = "Pindah ke " .. tostring(spotName)
+                            stopMeditating()
+                            pcall(setGameSwordMode, false)
+                            pcall(clearLeftoverMovers)
+                            task.wait(0.35)
+                            travelTo(spotPos, spotName or "Bagua Circle", 5)
+                            task.wait(0.2)
+                        end
+                    end
                 end
-                task.wait(1.5)
+                task.wait(1.0)
             else
                 State.Step = string.format("Kultivasi (Qi %.1f%%)", qi)
                 local spotPos, spotName = getBestCultivationSpot()
@@ -2585,7 +2773,6 @@ local function autoRebirthLoop()
                     if root and (root.Position - spotPos).Magnitude > 14 then
                         log("Perpindahan ke spot ranah baru: " .. tostring(spotName) .. " — Berdiri dan bersiap terbang...")
                         State.Step = "Pindah ke " .. tostring(spotName)
-                        -- WAJIB: Lepas status meditasi & physics mover sebelum terbang ke spot baru!
                         stopMeditating()
                         pcall(setGameSwordMode, false)
                         pcall(clearLeftoverMovers)
