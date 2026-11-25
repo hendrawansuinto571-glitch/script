@@ -1779,6 +1779,12 @@ local function travelTo(targetPos, label, arriveDist)
     State.Step = "Menuju " .. tostring(label or "tujuan")
     log("Terbang/Jalan ke: " .. tostring(label))
 
+    -- Jaminan 100%: Berdiri & lepas kuncian posisi sebelum bergerak
+    if isCurrentlyMeditating() then
+        stopMeditating()
+        task.wait(0.25)
+    end
+
     local okResult = false
     local okCall, err = pcall(function()
         local root = getRootPart()
@@ -2318,12 +2324,22 @@ local function attemptBreakthrough()
         task.wait(0.5)
     end
 
-    -- STEP 4: Konfirmasi jika ada tombol konfirmasi (Yes / Confirm / Ok / 破)
+    -- STEP 4: Konfirmasi jika ada tombol konfirmasi (Yes / Confirm / Ok / 破 / Be Reborn)
+    local rebornBtn = findRebornConfirmButton and findRebornConfirmButton()
+    if rebornBtn then
+        log("Memicu konfirmasi 'Be Reborn' di modal...")
+        triggerButton(rebornBtn)
+        task.wait(0.5)
+    end
+
     if modalPanel and modalPanel.Visible then
         for _, obj in ipairs(modalPanel:GetDescendants()) do
             if (obj:IsA("TextButton") or obj:IsA("ImageButton")) and isActuallyVisible(obj) then
                 local pName = obj.Parent and string.lower(obj.Parent.Name) or ""
-                if string.find(pName, "confirm", 1, true) or string.find(pName, "yes", 1, true) or string.find(pName, "ok", 1, true) or string.find(pName, "break", 1, true) or string.find(pName, "claim", 1, true) then
+                local bText = string.lower(obj:IsA("TextButton") and obj.Text or "")
+                if string.find(pName, "confirm", 1, true) or string.find(pName, "yes", 1, true) or string.find(pName, "ok", 1, true)
+                    or string.find(pName, "break", 1, true) or string.find(pName, "claim", 1, true) or string.find(pName, "reborn", 1, true)
+                    or string.find(bText, "reborn", 1, true) or string.find(bText, "confirm", 1, true) then
                     triggerButton(obj)
                 end
             end
@@ -2363,13 +2379,105 @@ end
 --  MAIN AUTO REBIRTH & MEDITATION LOOP
 -- ═══════════════════════════════════════════
 
--- Cek apakah tombol Breakthrough (Disk dengan 破 atau tombol Rebirth) sudah aktif di HUD
+-- Cek apakah tombol konfirmasi "Be Reborn" sedang muncul di layar (modal pop-up Rebirth)
+local function findRebornConfirmButton()
+    local pg = getPlayerGui()
+    if not pg then return nil end
+    for _, btn in ipairs(pg:GetDescendants()) do
+        if (btn:IsA("TextButton") or btn:IsA("ImageButton")) and isActuallyVisible(btn) then
+            if not (OurGui and btn:IsDescendantOf(OurGui)) then
+                -- 1. Cek TextButton.Text langsung
+                if btn:IsA("TextButton") and btn.Text ~= "" then
+                    local t = string.lower(btn.Text)
+                    if string.find(t, "be reborn", 1, true) or t == "reborn" or t == "be rebirth" then
+                        return btn
+                    end
+                end
+
+                -- 2. Cek TextLabel di dalam tombol
+                for _, lbl in ipairs(btn:GetDescendants()) do
+                    if lbl:IsA("TextLabel") and lbl.Text ~= "" then
+                        local t = string.lower(lbl.Text)
+                        if string.find(t, "be reborn", 1, true) or t == "reborn" or t == "be rebirth" then
+                            return btn
+                        end
+                    end
+                end
+
+                -- 3. Cek nama objek tombol
+                local bName = string.lower(btn.Name)
+                local pName = btn.Parent and string.lower(btn.Parent.Name) or ""
+                if (string.find(bName, "reborn", 1, true) or string.find(pName, "reborn", 1, true))
+                    and not string.find(bName, "later", 1, true) and not string.find(pName, "later", 1, true) then
+                    return btn
+                end
+            end
+        end
+    end
+    return nil
+end
+
+-- Cek apakah tombol Rebirth ("轉") sudah aktif di Action HUD
+local function getRebirthHudButton()
+    local pg = getPlayerGui()
+    local hud = pg and pg:FindFirstChild("CultivationHud")
+    local action = hud and hud:FindFirstChild("Action")
+    if action then
+        local rb = action:FindFirstChild("Rebirth")
+        local hitRb = rb and rb:FindFirstChild("Hit")
+        if hitRb and isActuallyVisible(hitRb) then
+            return hitRb
+        end
+    end
+    return nil
+end
+
+-- Eksekusi Rebirth lengkap: Klik tombol Rebirth di HUD lalu klik "Be Reborn" di modal pop-up
+local function executeRebirthFlow()
+    local beforeIdx = State.RealmIndex
+
+    -- 1. Periksa apakah modal "Be Reborn" sudah terbuka di layar
+    local rebornBtn = findRebornConfirmButton()
+    if rebornBtn then
+        log("Modal Rebirth terdeteksi! Mengklik 'Be Reborn'...")
+        triggerButton(rebornBtn)
+        task.wait(1.0)
+    else
+        -- 2. Jika modal belum terbuka, klik tombol Rebirth ("轉") di HUD
+        local hudBtn = getRebirthHudButton()
+        if hudBtn then
+            log("Tombol Rebirth ('轉') terdeteksi di HUD! Membuka modal...")
+            triggerButton(hudBtn)
+            task.wait(0.6)
+
+            -- Cari dan klik tombol "Be Reborn" yang muncul
+            rebornBtn = findRebornConfirmButton()
+            if rebornBtn then
+                log("Mengonfirmasi 'Be Reborn'...")
+                triggerButton(rebornBtn)
+                task.wait(1.0)
+            end
+        end
+    end
+
+    -- 3. Cadangan: Remote / Action Rebirth
+    fireAction("Rebirth")
+    fireAction("BeReborn")
+    if Remotes.Rebirth then fireRaw(Remotes.Rebirth) end
+    pressKey(Enum.KeyCode.B)
+
+    task.wait(1.0)
+    refreshPlayerState()
+    return (State.RealmIndex < beforeIdx or State.RealmIndex == 1)
+end
+
+-- Cek apakah tombol Breakthrough (Disk dengan 破) sudah aktif di HUD
 local function isBreakthroughReady()
     local pg = getPlayerGui()
     local hud = pg and pg:FindFirstChild("CultivationHud")
     local action = hud and hud:FindFirstChild("Action")
     if action then
-        -- 1. Cek tombol Disk (jika bertuliskan 破 atau Break)
+        -- Cek tombol Disk (jika bertuliskan 破 atau Break)
         local disk = action:FindFirstChild("Disk")
         if disk and isActuallyVisible(disk) then
             for _, d in ipairs(disk:GetDescendants()) do
@@ -2378,14 +2486,6 @@ local function isBreakthroughReady()
                         return true
                     end
                 end
-            end
-        end
-        -- 2. Cek tombol Rebirth di Action bar
-        local rb = action:FindFirstChild("Rebirth")
-        if rb and isActuallyVisible(rb) then
-            local hit = rb:FindFirstChild("Hit")
-            if hit and isActuallyVisible(hit) then
-                return true
             end
         end
     end
@@ -2438,6 +2538,28 @@ local function autoRebirthLoop()
                 return
             end
 
+            -- PRIORITAS 1: Cek apakah Rebirth sudah siap (tombol "轉" di HUD atau modal "Be Reborn" terbuka)
+            local rebornConfirmBtn = findRebornConfirmButton()
+            local hudRebirthBtn = getRebirthHudButton()
+
+            if rebornConfirmBtn or hudRebirthBtn then
+                log("🌟 REBIRTH TERSEDIA! Memulai proses Reinkarnasi...")
+                State.Step = "Rebirth (Reinkarnasi)"
+                stopMeditating()
+                pcall(setGameSwordMode, false)
+                pcall(clearLeftoverMovers)
+                task.wait(0.35)
+
+                local okRb = executeRebirthFlow()
+                if okRb then
+                    log("🎉 REBIRTH SUKSES! Ranah ter-reset dengan multiplier permanen baru!")
+                    notify("Rebirth Sukses", "Karakter berhasil di-Reborn! Memulai kultivasi ranah baru...")
+                end
+                task.wait(1.5)
+                return
+            end
+
+            -- PRIORITAS 2: Cek Breakthrough (Qi penuh atau tombol 破 siap)
             local qi = State.Qi or 0
             local isReady = (qi >= State.QiThreshold) or isBreakthroughReady()
             if isReady then
@@ -2461,7 +2583,16 @@ local function autoRebirthLoop()
                 if spotPos then
                     local root = getRootPart()
                     if root and (root.Position - spotPos).Magnitude > 14 then
+                        log("Perpindahan ke spot ranah baru: " .. tostring(spotName) .. " — Berdiri dan bersiap terbang...")
+                        State.Step = "Pindah ke " .. tostring(spotName)
+                        -- WAJIB: Lepas status meditasi & physics mover sebelum terbang ke spot baru!
+                        stopMeditating()
+                        pcall(setGameSwordMode, false)
+                        pcall(clearLeftoverMovers)
+                        task.wait(0.35)
+
                         travelTo(spotPos, spotName or "Bagua Circle", 5)
+                        task.wait(0.2)
                     end
                 end
 
@@ -2918,6 +3049,24 @@ CultTab:CreateButton({
     Callback = safeRun(function()
         task.spawn(function()
             attemptBreakthrough()
+        end)
+    end),
+})
+
+CultTab:CreateButton({
+    Name = "Lakukan Rebirth Sekarang ('Be Reborn')",
+    Callback = safeRun(function()
+        task.spawn(function()
+            stopMeditating()
+            pcall(setGameSwordMode, false)
+            pcall(clearLeftoverMovers)
+            task.wait(0.2)
+            local ok = executeRebirthFlow()
+            if ok then
+                notify("Rebirth Sukses", "Karakter berhasil di-Reborn!")
+            else
+                notify("Rebirth", "Tombol Rebirth / modal 'Be Reborn' diproses.")
+            end
         end)
     end),
 })
