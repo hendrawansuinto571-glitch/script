@@ -282,8 +282,16 @@ local function validateGame()
     local placeId = game.PlaceId
     local gameInfo = ALLOWED_GAMES[placeId] or ALLOWED_GAMES[tonumber(placeId)]
 
-    -- 0. Signature unik Cultivation Legends (folder Obitel / Islands dari decompile)
+    -- 0. Signature unik game yang terverifikasi (Mountain Excavation / Cultivation Legends)
     pcall(function()
+        local ms = workspace:FindFirstChild("MountainSections")
+        local rs = game:GetService("ReplicatedStorage")
+        local svcs = rs and rs:FindFirstChild("Services")
+        local cfg = svcs and svcs:FindFirstChild("Config")
+        if ms or (cfg and cfg:FindFirstChild("MountainConfig")) then
+            gameInfo = { name = "Mountain Excavation", script = "mountain" }
+            return
+        end
         local obitel = workspace:FindFirstChild("Obitel")
         local islands = workspace:FindFirstChild("Islands") or (obitel and obitel:FindFirstChild("Islands"))
         if obitel or islands then
@@ -305,6 +313,8 @@ local function validateGame()
                     gameInfo = { name = prodInfo.Name, script = "ragdoll" }
                 elseif string.find(lowerName, "cultivation") or string.find(lowerName, "cultivate") then
                     gameInfo = { name = prodInfo.Name, script = "cultivationlegends" }
+                elseif string.find(lowerName, "mountain") or string.find(lowerName, "excavat") then
+                    gameInfo = { name = prodInfo.Name, script = "mountain" }
                 end
             end
         end)
